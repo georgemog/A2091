@@ -1,0 +1,8 @@
+sim/obj_dir/
+sim/sim_test.hdf
+sim/a2091.rom
+sim/config/
+sim/logs/
+tb/*.vvp
+tb/*.vcd
+.DS_Store

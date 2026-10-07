@@ -1,0 +1,1058 @@
+diff --git a/Minimig.sv b/Minimig.sv
+index 99843b4..6ee090e 100644
+--- a/Minimig.sv
++++ b/Minimig.sv
+@@ -166,6 +166,22 @@ wire        arb_chip_rw;
+ wire        arb_chip_dma;
+ wire [15:0] arb_chip_wr;
+ 
++// ---- A4091 software-SIOP bridge mailbox (hps_ext <-> cpu_wrapper/a4091) ----
++// The 53C710 model + SCRIPTS VM + SCSI-2 emulation run on the HPS ARM
++// (a4091_hps_thread, support/minimig/minimig_a4091.cpp). The FPGA side is a
++// 256-byte shadow register RAM plus a kick flag and an IRQ line
++// (rtl/a4091/a4091_bridge.v) - no sector server, no FPGA DMA master: the ARM
++// moves DATA phases straight into HPS DDR (Z3 fast RAM is physically DDR).
++wire  [7:0] a4091_mbx_addr;
++wire        a4091_mbx_regs_wr;
++wire  [7:0] a4091_mbx_wdata;
++wire  [7:0] a4091_mbx_rdata;
++wire        a4091_mbx_set_int, a4091_mbx_clr_int, a4091_mbx_clr_kick, a4091_mbx_clr_srst;
++wire        a4091_mbx_cache_clr;
++wire        a4091_cache_clr;
++wire [15:0] a4091_mbx_status;
++wire [63:0] a4091_dbg_bus;
++
+ wire [35:0] EXT_BUS;
+ hps_ext hps_ext(.*, .ide_req(ide_fast ? ide_f_req : ide_c_req),  .ide_din(ide_fast ? ide_f_readdata : ide_c_readdata));
+ 
+@@ -319,6 +335,12 @@ end
+ wire  [1:0] cpu_state;
+ wire        cpu_nrst_out;
+ wire  [3:0] cpu_cacr;
++// The RAM controllers' read caches cannot snoop the ARM's mmap writes into
++// HPS DDR, so a4091_bridge pulses cpu_cache_new's clear (the 68020 CACR
++// clear bit) after a DATA-IN. Registered on clk_sys: a combinational OR here
++// failed clk_114 timing (JOURNAL 20260906-16xx, build 1).
++reg   [3:0] cpu_cacr_a4091;
++always @(posedge clk_sys) cpu_cacr_a4091 <= cpu_cacr | {a4091_cache_clr, 3'b000};
+ wire [31:0] cpu_nmi_addr;
+ wire        cpu_rst;
+ 
+@@ -359,6 +381,17 @@ wire [31:0] cdtv_dma_baddr;
+ wire  [7:0] cdtv_dma_wbyte;
+ wire        cdtv_dma_ack;
+ 
++// A4091 Zorro III NCR 53C710 SCSI - SOFTWARE SIOP (see A4091/software-siop-*).
++// FPGA side = autoconfig + boot ROM + register window + the a4091_bridge
++// shadow-register RAM / kick / IRQ. The 53C710 model, SCRIPTS VM and SCSI-2
++// emulation (up to 6 targets, IDs 1..6, each an .hdf from the OSD "A4091 SCSI"
++// section) run on the HPS ARM. O[57] gates autoconfig.
++// Enabled by the HPS through the A2091 mailbox (OP_CFG bit 1); cpu_wrapper
++// additionally requires the 32-bit CPU.
++wire        a4091_hps_en;
++wire        a4091_ena = a4091_hps_en;
++wire        a4091_int2;
++
+ cpu_wrapper cpu_wrapper
+ (
+ 	.reset        (cpu_rst         ),
+@@ -425,7 +458,28 @@ cpu_wrapper cpu_wrapper
+ 	.z3ram_ena0   (z3ram_ena0      ),
+ 	.z3ram_base1  (z3ram_base1     ),
+ 	.z3ram_ena1   (z3ram_ena1      ),
+-	.dcache_sw_en (dcache_sw_en    )
++	.dcache_sw_en (dcache_sw_en    ),
++
++	// A4091 SCSI - software SIOP bridge
++	.a4091_ena     (a4091_ena       ),
++	.a4091_scsi_id (3'd7            ),
++	.a4091_dip     (5'b00000        ),
++	.a4091_int2    (a4091_int2      ),
++	.a4091_rom_wr  (1'b0            ),   // ROM preloaded from rtl/a4091/a4091_rom.mif
++	.a4091_rom_addr(16'd0           ),
++	.a4091_rom_data(8'd0            ),
++	.a4091_mbx_addr    (a4091_mbx_addr    ),
++	.a4091_mbx_regs_wr (a4091_mbx_regs_wr ),
++	.a4091_mbx_wdata   (a4091_mbx_wdata   ),
++	.a4091_mbx_rdata   (a4091_mbx_rdata   ),
++	.a4091_mbx_set_int (a4091_mbx_set_int ),
++	.a4091_mbx_clr_int (a4091_mbx_clr_int ),
++	.a4091_mbx_clr_kick(a4091_mbx_clr_kick),
++	.a4091_mbx_clr_srst(a4091_mbx_clr_srst),
++	.a4091_mbx_cache_clr(a4091_mbx_cache_clr),
++	.a4091_cache_clr   (a4091_cache_clr   ),
++	.a4091_mbx_status  (a4091_mbx_status  ),
++	.a4091_dbg_bus     (a4091_dbg_bus     )
+ );
+ 
+ wire        dcache_sw_en;
+@@ -455,7 +509,7 @@ sdram_ctrl ram1
+ 	.c_7m         (c1              ),
+ 
+ 	.cache_rst    (cpu_rst         ),
+-	.cpu_cache_ctrl(cpu_cacr       ),
++	.cpu_cache_ctrl(cpu_cacr_a4091 ),
+ 	.dcache_sw_en (dcache_sw_en    ),
+ 
+ 	.sd_data      (SDRAM_DQ        ),
+@@ -556,7 +610,7 @@ ddram_ctrl ram2
+ 	.reset_n      (~reset_d        ),
+ 
+ 	.cache_rst    (cpu_rst         ),
+-	.cpu_cache_ctrl(cpu_cacr       ),
++	.cpu_cache_ctrl(cpu_cacr_a4091 ),
+ 	.dcache_sw_en (dcache_sw_en    ),
+ 
+ 	.DDRAM_CLK    (DDRAM_CLK       ),
+@@ -856,6 +910,7 @@ minimig minimig
+ 	.a2091_base      (a2091_base      ),
+ 	.a2091_present   (a2091_present   ),
+ 	.a2091_rom       (a2091_rom       ),
++	.a4091_hps_en    (a4091_hps_en    ),
+ 	.z2ram_ena       (z2ram_ena       ),
+ 	.a2091_hp_cmd    (a2091_hp_cmd    ),
+ 	.a2091_hp_start  (a2091_hp_start  ),
+@@ -937,7 +992,9 @@ minimig minimig
+ 	.USER_IN      			(USER_IN),
+ 	.USER_OUT     			(IndirectUserOutFlop),
+ 	.user_port_mode 		(user_port_mode),
+-	.mister_floppy_status	(mister_floppy_status)
++	.mister_floppy_status	(mister_floppy_status),
++
++	.a4091_int2   (a4091_int2       )
+ );
+ 
+ // power led control
+diff --git a/files.qip b/files.qip
+index 0036c13..d24b8e8 100644
+--- a/files.qip
++++ b/files.qip
+@@ -15,6 +15,8 @@ set_global_assignment -name VERILOG_FILE rtl/gary.v
+ set_global_assignment -name VERILOG_FILE rtl/rtg.v
+ set_global_assignment -name VERILOG_FILE rtl/chipdma_arb.v
+ set_global_assignment -name VERILOG_FILE rtl/a2091.v
++set_global_assignment -name VERILOG_FILE rtl/a4091/a4091.v
++set_global_assignment -name VERILOG_FILE rtl/a4091/a4091_bridge.v
+ set_global_assignment -name VERILOG_FILE rtl/memory_router.v
+ set_global_assignment -name VERILOG_FILE rtl/fastchip.v
+ set_global_assignment -name VERILOG_FILE rtl/userio.v
+diff --git a/hps_ext.v b/hps_ext.v
+index 8723412..3e2a57d 100644
+--- a/hps_ext.v
++++ b/hps_ext.v
+@@ -94,7 +94,27 @@ module hps_ext
+ 	output reg        a2091_hp_strobe,
+ 	output reg [15:0] a2091_hp_wdata,
+ 	input      [15:0] a2091_hp_rdata,
+-	input      [15:0] a2091_hp_status
++	input      [15:0] a2091_hp_status,
++
++	// ---- A4091 software-SIOP bridge mailbox -----------------------------
++	// Rides on hps_ext (the generic hps_io UIO loop is not polled for Minimig).
++	// Main_MiSTer: a4091_hps_thread() in support/minimig/minimig_a4091.cpp.
++	//   'h64  poll     : status word (kick/int/soft-reset/SIGP/dma flags)
++	//   'h65  regs rd   : burst-read the 256-byte shadow register RAM
++	//   'h66  regs wr   : burst-write the shadow register RAM
++	//   'h67  control   : byte -> {set_int, clr_int, clr_kick, clr_srst, cache_clr}
++	//   'h68  dbg        : compact 64-bit heartbeat bus
++	input      [15:0] a4091_mbx_status,    // -> 'h64
++	output reg  [7:0] a4091_mbx_addr,      // shadow-RAM index for 'h65 / 'h66
++	output reg        a4091_mbx_regs_wr,
++	output reg  [7:0] a4091_mbx_wdata,
++	input       [7:0] a4091_mbx_rdata,     // regs[a4091_mbx_addr], 1 clk latency
++	output reg        a4091_mbx_set_int,
++	output reg        a4091_mbx_clr_int,
++	output reg        a4091_mbx_clr_kick,
++	output reg        a4091_mbx_clr_srst,
++	output reg        a4091_mbx_cache_clr,
++	input      [63:0] a4091_dbg_bus        // heartbeat snapshot, read via cmd 'h68
+ );
+ 
+ assign EXT_BUS[15:0] = io_fpga ? fpga_dout : io_dout;
+@@ -133,6 +153,15 @@ always@(posedge clk_sys) begin : main_proc
+ 	{akiko_rd, akiko_wr} <= 0;
+ 	{cdtv_rd, cdtv_wr} <= 0;
+ 	{a2091_hp_start, a2091_hp_strobe} <= 0;
++
++	// A4091 bridge mailbox: all pulses are 1 cycle
++	a4091_mbx_regs_wr   <= 0;
++	a4091_mbx_set_int   <= 0;
++	a4091_mbx_clr_int   <= 0;
++	a4091_mbx_clr_kick  <= 0;
++	a4091_mbx_clr_srst  <= 0;
++	a4091_mbx_cache_clr <= 0;
++
+ 	if((ide_rd | ide_wr) & ~&ide_addr[3:0]) ide_addr <= ide_addr + 1'd1;
+ 
+ 	if(~io_uio) begin
+@@ -179,7 +208,8 @@ always@(posedge clk_sys) begin : main_proc
+ 		if(byte_cnt == 0) begin
+ 			cmd <= io_din;
+ 			dout_en <= (io_din >= EXT_CMD_MIN && io_din <= EXT_CMD_MAX) || (io_din >= EXT_CMD_MIN2 && io_din <= EXT_CMD_MAX2)
+-			        || (io_din >= EXT_CMD_MIN3 && io_din <= EXT_CMD_MAX3);
++			        || (io_din >= EXT_CMD_MIN3 && io_din <= EXT_CMD_MAX3)
++			        || (io_din == 'h64) || (io_din == 'h65) || (io_din == 'h68);
+ 			if(io_din >= EXT_CMD_MIN3 && io_din <= EXT_CMD_MAX3) begin
+ 				io_dout        <= a2091_hp_status;
+ 				a2091_hp_cmd   <= io_din[1:0];
+@@ -187,12 +217,48 @@ always@(posedge clk_sys) begin : main_proc
+ 			end
+ 			if(io_din == 'h63) io_dout <= {2'b00, cdtv_card_dirty, cdtv_nvr_dirty, akiko_req, akiko_sec_req, akiko_rx_busy, cdda_req, akiko_nvr_dirty, cdtv_req, ide_req};
+ 			if(io_din == UIO_GET_VMODE) io_dout <= 1;
++			// A4091 bridge poll -> status word (kick/int/srst/SIGP/dma)
++			if(io_din == 'h64) io_dout <= a4091_mbx_status;
++			// A4091 bridge shadow-reg burst: rewind the RAM index. The bridge
++			// tracks mbx_rdata = regs[a4091_mbx_addr] with 1 clk latency; the
++			// idle gap before strobe 1 covers it.
++			if(io_din == 'h65 || io_din == 'h66) a4091_mbx_addr <= 0;
++			// A4091 bridge heartbeat: words 1..4 = dbg_bus[15:0..63:48]
++			if(io_din == 'h68) io_dout <= a4091_dbg_bus[15:0];
+ 		end else begin
+ 			if(cmd >= EXT_CMD_MIN3 && cmd <= EXT_CMD_MAX3) begin
+ 				io_dout         <= a2091_hp_rdata;
+ 				a2091_hp_wdata  <= io_din;
+ 				a2091_hp_strobe <= 1;
+ 			end
++			// --- A4091 bridge mailbox continuation ---
++			if(cmd == 'h68) begin
++				if(byte_cnt == 1) io_dout <= a4091_dbg_bus[31:16];
++				if(byte_cnt == 2) io_dout <= a4091_dbg_bus[47:32];
++				if(byte_cnt == 3) io_dout <= a4091_dbg_bus[63:48];
++			end
++			// 'h65: FPGA -> HPS shadow-reg burst read. io_dout at strobe K
++			// (K>=1) = regs[K-1]. Main issues cmd + one throwaway read + 256.
++			if(cmd == 'h65) begin
++				io_dout        <= {8'd0, a4091_mbx_rdata};
++				a4091_mbx_addr <= a4091_mbx_addr + 1'b1;
++			end
++			// 'h66: HPS -> FPGA shadow-reg burst write. Strobe K (K>=1) carries
++			// regs[K-1]; the pulse is consumed on the following (idle) clk.
++			if(cmd == 'h66) begin
++				if(byte_cnt >= 2) a4091_mbx_addr <= a4091_mbx_addr + 1'b1;
++				a4091_mbx_wdata   <= io_din[7:0];
++				a4091_mbx_regs_wr <= 1'b1;
++			end
++			// 'h67: control byte -> mailbox pulses
++			//   bit0 set_int  bit1 clr_int  bit2 clr_kick  bit3 clr_srst  bit4 cache_clr
++			if(cmd == 'h67 && byte_cnt == 1) begin
++				a4091_mbx_set_int   <= io_din[0];
++				a4091_mbx_clr_int   <= io_din[1];
++				a4091_mbx_clr_kick  <= io_din[2];
++				a4091_mbx_clr_srst  <= io_din[3];
++				a4091_mbx_cache_clr <= io_din[4];
++			end
+ 			case(cmd)
+ 
+ 				UIO_MOUSE:
+diff --git a/rtl/a2091.v b/rtl/a2091.v
+index 9a07356..90ee832 100644
+--- a/rtl/a2091.v
++++ b/rtl/a2091.v
+@@ -34,6 +34,9 @@
+ // hps_ext and chipdma_arb.
+ 
+ module a2091
++#(
++	parameter HAS_A4091 = 0          // core also carries the A4091 bridge
++)
+ (
+ 	input             clk,
+ 	input             reset,          // Amiga reset (CPU RESET / system)
+@@ -58,6 +61,8 @@ module a2091
+ 	output reg        enabled,
+ 	// a boot ROM has been loaded: autoconfig advertises the DiagArea
+ 	output reg        rom_valid,
++	// A4091 enable, also set through OP_CFG (bit 1) in a combined core
++	output reg        a4091_en,
+ 
+ 	// HPS mailbox (hps_ext)
+ 	input       [1:0] hp_cmd,         // command - 'h70
+@@ -107,7 +112,7 @@ localparam OP_BUFWR  = 8'h04;   // words 2.. = dma buffer words from 0
+ localparam OP_DMA    = 8'h05;   // word 2 = addr[23:16], word 3 = addr[15:0],
+                                 // word 4 = {dir(1=read memory), 3'b0, count[11:0]} -> start
+ localparam OP_ROM    = 8'h06;   // words 2.. = boot ROM words from 0
+-localparam OP_CFG    = 8'h07;   // word 2 = bit0 enable
++localparam OP_CFG    = 8'h07;   // word 2 = bit0 A2091 enable, bit1 A4091 enable
+ localparam OP_PIO    = 8'h08;   // word 2 = {dir(1 = 68k writes), 3'b0, count[11:0]}:
+                                 // the 68k moves count bytes through the WD DATA
+                                 // register straight from/into the DMA buffer
+@@ -353,6 +358,7 @@ always @(*) begin
+ 				8'd36: hp_rdata = wtc[15:0];
+ 				8'd37: hp_rdata = {8'h00, istr_val};
+ 				8'd38: hp_rdata = {pio_on, 2'd0, pio_ptr, sf_cnt[0]};
++				8'd39: hp_rdata = {15'd0, HAS_A4091 != 0};     // capabilities
+ 				default: hp_rdata = 16'h0000;
+ 			endcase
+ 		end
+@@ -436,7 +442,10 @@ always @(posedge clk) begin
+ 					rom_we    <= 1'b1;
+ 					rom_valid <= 1'b1;
+ 				end
+-				OP_CFG: if (hp_idx == 8'd1) enabled <= hp_wdata[0];
++				OP_CFG: if (hp_idx == 8'd1) begin
++					enabled  <= hp_wdata[0];
++					a4091_en <= hp_wdata[1] & (HAS_A4091 != 0);
++				end
+ 				OP_PIO: if (hp_idx == 8'd1 && |hp_wdata[11:0]) begin
+ 					pio_on    <= 1'b1;
+ 					pio_wr    <= hp_wdata[15];
+@@ -633,6 +642,7 @@ end
+ initial begin
+ 	enabled   = 1'b1;
+ 	rom_valid = 1'b0;
++	a4091_en  = 1'b0;
+ 	dma_st    = DS_IDLE;
+ 	dma_req   = 1'b0;
+ 	dma_we    = 1'b0;
+diff --git a/rtl/a4091/a4091.v b/rtl/a4091/a4091.v
+new file mode 100644
+index 0000000..a1a6d28
+--- /dev/null
++++ b/rtl/a4091/a4091.v
+@@ -0,0 +1,282 @@
++// ===========================================================================
++// A4091 - Commodore/DKB Zorro III DMA Fast SCSI-2 host adapter for Minimig-AGA
++//
++// Architecture: SOFTWARE SIOP. The 53C710 register model + SCRIPTS VM + SCSI-2
++// emulation run on the HPS ARM (support/minimig/a4091_lsi.cpp + a4091_scsi.c).
++// This module is the FPGA-side bridge only:
++//   * Zorro-III autoconfig ($E80000) + autoboot ROM window   - unchanged
++//   * board-window decode + DTACK handshake                  - unchanged
++//   * a4091_bridge: 256 B shadow register RAM + kick + IRQ    - replaces the
++//     old a4091_siop.v / a4091_target.v / a4091_sd.v RTL SIOP
++//
++// See A4091/software-siop-plan.md and software-siop-exec-plan.md.
++// ===========================================================================
++
++module a4091
++(
++	input             clk,          // clk_sys 28.6875 MHz
++	input             reset,        // active high
++
++	input             enable,       // OSD: board present (gate autoconfig)
++	input       [2:0] cfg_scsi_id,  // DIP 1-3: host SCSI ID
++	input       [4:0] cfg_dip,      // DIP 4-8: fastbus/autoboot/sync/term/lun
++
++	// ---- Zorro autoconfig ($E80000 config space) -------------------------
++	input             ac_cycle,     // 1 = $E8xxxx access, our turn
++	input       [5:0] ac_reg,       // config register = chip_addr[6:1]
++	input             ac_write,     // 1 = write (base assignment / shutup)
++	input      [15:0] ac_wdata,
++	output reg  [3:0] ac_rdata,     // nibble on D15:D12
++	output reg        ac_done,      // 1 = configured or shut up -> advance chain
++
++	// ---- board window (post-config), from cpu_wrapper.v ------------------
++	output     [31:24] board_base,
++	output            board_cfgd,
++	input             brd_sel,
++	input      [23:0] brd_addr,
++	input      [15:0] brd_din,
++	output     [15:0] brd_dout,
++	input             brd_lds,
++	input             brd_uds,
++	input             brd_rnw,
++	output            brd_selack,
++	output            brd_ready,
++
++	// ---- chip / Zorro-II bus-master DMA (arbitrated onto the CPU ram port)
++	// Bulk DATA is ARM->DDR memcpy and never comes here; this is the rare
++	// chip / Z2-fast bounce-buffer path only. Wired in exec-plan PR2.
++	output            dma_req,
++	output            dma_rw,
++	output     [31:1] dma_addr,
++	output     [15:0] dma_wdata,
++	input      [15:0] dma_rdata,
++	output      [1:0] dma_bs,
++	input             dma_ack,
++
++	// ---- interrupt ------------------------------------------------------
++	output            int2,
++
++	// ---- boot ROM load (HPS ioctl_download) ----------------------------
++	input             rom_wr,
++	input      [15:0] rom_addr,     // word address into 32KB image (0..0x3FFF)
++	input       [7:0] rom_data,
++
++	// ---- HPS bridge mailbox (hps_ext.v) -------------------------------
++	input      [7:0]  mbx_addr,
++	input             mbx_regs_wr,
++	input      [7:0]  mbx_wdata,
++	output     [7:0]  mbx_rdata,
++	input             mbx_set_int,
++	input             mbx_clr_int,
++	input             mbx_clr_kick,
++	input             mbx_clr_srst,
++	input             mbx_cache_clr,
++	output     [15:0] mbx_status,
++	output            cache_clr,      // -> cpu_cacr[3] of both RAM controllers
++
++	// ---- compact debug bus (HPS-readable via hps_ext 'h68) --------------
++	output     [63:0] dbg_bus,
++
++	output            led           // activity LED
++);
++
++// ---------------------------------------------------------------------------
++// AutoConfig ident table (unchanged - matches a4091-software rom.S)
++// ---------------------------------------------------------------------------
++localparam [7:0]  AC_TYPE    = 8'h90;        // Z3 | DIAGVALID | size-field 0
++localparam [7:0]  AC_PRODUCT = 8'h54;        // 84
++localparam [7:0]  AC_FLAGS   = 8'h30;        // EXTENDED | ZORRO_III  -> 16 MB
++localparam [15:0] AC_MFG     = 16'h0202;     // 514
++localparam [31:0] AC_SERIAL  = 32'h002A_0027; // VERSION 42 (0x2A), REVISION 39 (0x27)
++localparam [15:0] AC_ROMVEC  = 16'h0200;     // DiagArea offset within the board window
++
++reg [7:0] ac_byte;
++reg [3:0] ac_nibble;
++always @(*) begin
++	case (ac_reg[5:1])
++		5'd0:  ac_byte = AC_TYPE;
++		5'd1:  ac_byte = AC_PRODUCT;
++		5'd2:  ac_byte = AC_FLAGS;
++		5'd3:  ac_byte = 8'h00;
++		5'd4:  ac_byte = AC_MFG[15:8];
++		5'd5:  ac_byte = AC_MFG[7:0];
++		5'd6:  ac_byte = AC_SERIAL[31:24];
++		5'd7:  ac_byte = AC_SERIAL[23:16];
++		5'd8:  ac_byte = AC_SERIAL[15:8];
++		5'd9:  ac_byte = AC_SERIAL[7:0];
++		5'd10: ac_byte = AC_ROMVEC[15:8];
++		5'd11: ac_byte = AC_ROMVEC[7:0];
++		default: ac_byte = 8'h00;
++	endcase
++	ac_nibble = ac_reg[0] ? ac_byte[3:0] : ac_byte[7:4];
++end
++
++reg        cfgd;
++reg [7:0]  base_hi;
++assign board_base = base_hi;
++assign board_cfgd = cfgd;
++
++always @(posedge clk) begin
++	if (reset) begin
++		cfgd    <= 1'b0;
++		base_hi <= 8'h00;
++		ac_done <= 1'b0;
++	end
++	else if (!cfgd && enable && ac_cycle) begin
++		if (ac_write) begin
++			if (ac_reg == 6'h22) begin
++				base_hi <= ac_wdata[15:8];
++				cfgd    <= 1'b1;
++				ac_done <= 1'b1;
++			end
++			else if (ac_reg == 6'h26) begin
++				ac_done <= 1'b1;   // board declines, advance chain
++			end
++		end
++	end
++end
++
++always @(*) ac_rdata = (ac_reg[5:1] == 5'd0) ? ac_nibble : ~ac_nibble;
++
++// ---------------------------------------------------------------------------
++// Board window decode (unchanged)
++//   0x000000..0x7FFFFF  boot ROM
++//   0x800000..0x87FFFF  53C710 registers
++//   0x8C0003            DIP switch byte
++//   0x8D0000..0x8D03FF  bridge debug window
++// ---------------------------------------------------------------------------
++wire sel_rom = brd_sel && (brd_addr[23] == 1'b0);
++wire sel_reg = brd_sel && (brd_addr[23:19] == 5'b1000_0);
++wire sel_dip = brd_sel && (brd_addr[23:1] == (24'h8C0003 >> 1));
++wire sel_dbg = brd_sel && (brd_addr[23:10] == 14'h2340);
++
++assign brd_selack = sel_rom | sel_reg | sel_dip | sel_dbg;
++
++// --- boot ROM ----------------------------------------------------------
++// Synthesis: the (* ram_init_file *) attribute points Quartus at the .mif,
++// so a driver-only change is picked up by MIF/HEX Update (~2 min) instead
++// of a full recompile. Simulation: the tb passes -DA4091_ROM_HEX=<path>
++// and $readmemh loads the byte-per-line hex instead (iverilog ignores the
++// attribute). Keep a4091_rom.mif and a4091_rom.hex in sync - make_hex.sh
++// emits both from the same a4091.rom.
++(* ram_init_file = "rtl/a4091/a4091_rom.mif" *)
++reg [7:0] rom_mem [0:65535];
++`ifdef A4091_ROM_HEX
++initial $readmemh(`A4091_ROM_HEX, rom_mem);
++`endif
++
++reg  [7:0] rom_rb;
++reg  [1:0] rom_lane;
++always @(posedge clk) begin
++	if (rom_wr) rom_mem[rom_addr] <= rom_data;
++	rom_rb   <= rom_mem[brd_addr[17:2]];
++	rom_lane <= brd_addr[1:0];
++end
++wire [15:0] rom_q = (rom_lane == 2'd0) ? {rom_rb[7:4], 12'hfff}
++                  : (rom_lane == 2'd2) ? {rom_rb[3:0], 12'hfff}
++                  :                      16'hffff;
++
++// --- DIP switch byte (unchanged) ---------------------------------------
++wire [7:0] dip_byte = ({cfg_dip, 3'b000} ^ 8'hF8) | {5'b0, cfg_scsi_id};
++
++// ---------------------------------------------------------------------------
++// 53C710 register window -> a4091_bridge shadow RAM
++// Each 16-bit bus word covers two adjacent (byte-swapped) registers:
++//   D15:8 (uds) -> reg {base, base&3==0 ? 3 : 1}
++//   D7:0  (lds) -> reg {base, base&3==0 ? 2 : 0}
++// ---------------------------------------------------------------------------
++wire [7:0]  reg_base    = {brd_addr[5:2], 2'b00};
++wire [7:0]  reg_hi_addr  = (reg_base | (brd_addr[1] ? 8'd1 : 8'd3)) & 8'h3f;
++wire [7:0]  reg_lo_addr  = (reg_base | (brd_addr[1] ? 8'd0 : 8'd2)) & 8'h3f;
++wire        reg_hi_stb   = sel_reg & brd_uds;
++wire        reg_lo_stb   = sel_reg & brd_lds;
++
++wire [7:0]  brg_rq_hi, brg_rq_lo;
++wire        brg_ready;
++wire [15:0] reg_dout16 = {brg_rq_hi, brg_rq_lo};
++
++a4091_bridge bridge
++(
++	.clk        (clk),
++	.reset      (reset),
++
++	.reg_hi_addr (reg_hi_addr),
++	.reg_lo_addr (reg_lo_addr),
++	.reg_rd_hi   (reg_hi_stb &  brd_rnw),
++	.reg_rd_lo   (reg_lo_stb &  brd_rnw),
++	.reg_wr_hi   (reg_hi_stb & ~brd_rnw),
++	.reg_wr_lo   (reg_lo_stb & ~brd_rnw),
++	.reg_wd_hi   (brd_din[15:8]),
++	.reg_wd_lo   (brd_din[7:0]),
++	.reg_rq_hi   (brg_rq_hi),
++	.reg_rq_lo   (brg_rq_lo),
++	.reg_ready   (brg_ready),
++
++	.int2       (int2),
++
++	.mbx_addr     (mbx_addr),
++	.mbx_regs_wr  (mbx_regs_wr),
++	.mbx_wdata    (mbx_wdata),
++	.mbx_rdata    (mbx_rdata),
++	.mbx_set_int  (mbx_set_int),
++	.mbx_clr_int  (mbx_clr_int),
++	.mbx_clr_kick (mbx_clr_kick),
++	.mbx_clr_srst (mbx_clr_srst),
++	.mbx_cache_clr(mbx_cache_clr),
++	.mbx_status   (mbx_status),
++	.cache_clr    (cache_clr),
++
++	.dma_req    (dma_req),
++	.dma_rw     (dma_rw),
++	.dma_addr   (dma_addr),
++	.dma_wdata  (dma_wdata),
++	.dma_rdata  (dma_rdata),
++	.dma_bs     (dma_bs),
++	.dma_ack    (dma_ack),
++
++	.dbg_bus    (dbg_bus),
++	.led        (led)
++);
++
++// ---------------------------------------------------------------------------
++// bridge debug window (0x8D0000) - slim: signature + shadow regs + flags
++// ---------------------------------------------------------------------------
++reg [15:0] dbg_q;
++always @(*) begin
++	case (brd_addr[7:1])
++	7'h00: dbg_q = 16'hA491;                 // signature
++	7'h01: dbg_q = 16'hB012;                 // bridge version
++	7'h02: dbg_q = dbg_bus[15:0];            // {srst,int,kick} flags + ISTAT shadow
++	7'h03: dbg_q = dbg_bus[31:16];           // DSTAT shadow
++	7'h04: dbg_q = mbx_status;
++	7'h05: dbg_q = {AC_FLAGS, AC_TYPE};      // ident echo
++	default: dbg_q = 16'h0000;
++	endcase
++end
++
++// ---------------------------------------------------------------------------
++// board read data mux + ready (unchanged contract - LEVEL, not a pulse)
++// ---------------------------------------------------------------------------
++reg        sel_rom_d, sel_dip_d, sel_reg_d, sel_dbg_d;
++reg [23:0] brd_addr_d;
++always @(posedge clk) begin
++	sel_rom_d  <= sel_rom;
++	sel_dip_d  <= sel_dip;
++	sel_reg_d  <= sel_reg;
++	sel_dbg_d  <= sel_dbg;
++	brd_addr_d <= brd_addr;
++end
++
++wire brd_stable = (brd_addr == brd_addr_d);
++
++assign brd_dout = sel_rom ? rom_q :
++                  sel_dip ? {8'hff, dip_byte} :
++                  sel_dbg ? dbg_q :
++                            reg_dout16;
++
++assign brd_ready = brd_sel & brd_stable & ( (sel_rom & sel_rom_d)
++                                          | (sel_dip & sel_dip_d)
++                                          | (sel_dbg & sel_dbg_d)
++                                          | (sel_reg & sel_reg_d & brg_ready) );
++
++endmodule
+diff --git a/rtl/a4091/a4091_bridge.v b/rtl/a4091/a4091_bridge.v
+new file mode 100644
+index 0000000..b1a0234
+--- /dev/null
++++ b/rtl/a4091/a4091_bridge.v
+@@ -0,0 +1,234 @@
++// ===========================================================================
++// A4091 bridge - thin Zorro-III <-> HPS ARM bridge for the software SIOP.
++//
++// Replaces a4091_siop.v + a4091_target.v + a4091_sd.v. The 53C710 + SCRIPTS
++// VM + SCSI-2 emulation now run on the ARM (support/minimig/a4091_lsi.cpp +
++// a4091_scsi.c). This module is just:
++//   * a 256-byte shadow register RAM  - CPU R/W at Zorro speed, zero SPI
++//   * kick detect                     - CPU writes DSP MSB -> tell the ARM
++//   * IRQ                             - ARM sets int_pending -> assert int2
++//   * chip / Zorro-II DMA mailbox     - the rare non-Z3-fast DATA path
++//
++// The bulk DATA path is the ARM memcpy'ing straight into HPS DDR (Z3 fast RAM
++// is physically DDR) - it never touches this module.
++//
++// See A4091/software-siop-exec-plan.md (Phase A).
++// ===========================================================================
++
++module a4091_bridge
++(
++	input             clk,            // clk_sys 28.6875 MHz
++	input             reset,          // active high
++
++	// ---- CPU register port (from a4091.v board-window decode) -------------
++	// Dual-lane: hi -> D15:8 at reg_hi_addr, lo -> D7:0 at reg_lo_addr.
++	// Strobes are LEVELS held for the whole (multi-cycle) Zorro access; the
++	// "fire once per address phase" edge logic below is ported verbatim from
++	// a4091_siop.v (self-clearing bits double-count on a held strobe, and a
++	// 32-bit burst hits a different register pair each half).
++	input      [7:0]  reg_hi_addr,
++	input      [7:0]  reg_lo_addr,
++	input             reg_rd_hi,
++	input             reg_rd_lo,
++	input             reg_wr_hi,
++	input             reg_wr_lo,
++	input      [7:0]  reg_wd_hi,
++	input      [7:0]  reg_wd_lo,
++	output reg [7:0]  reg_rq_hi,
++	output reg [7:0]  reg_rq_lo,
++	output            reg_ready,
++
++	// ---- interrupt ------------------------------------------------------
++	output            int2,
++
++	// ---- HPS mailbox (hps_ext.v) --------------------------------------
++	// 0x64 poll        : {kick_pending, soft_reset, dma_req, ...}   (FPGA->HPS)
++	// 0x65 regs read   : burst-read shadow RAM                      (FPGA->HPS)
++	// 0x66 regs write  : burst-write shadow RAM                     (HPS->FPGA)
++	// 0x67 control     : set int_pending / clear kick / clear soft_reset
++	// 0x68/0x69 chip-DMA : addr/len/we  +  data  (Phase A.2 / PR2)
++	// mbx_addr drives a registered read: mbx_rdata = regs[mbx_addr] one clk
++	// later, unconditionally. 0x66 burst-write pulses mbx_regs_wr.
++	input      [7:0]  mbx_addr,
++	input             mbx_regs_wr,      // 0x66: HPS writes mbx_wdata -> regs[mbx_addr]
++	input      [7:0]  mbx_wdata,
++	output reg [7:0]  mbx_rdata,
++	input             mbx_set_int,      // 0x67 bit: raise int_pending
++	input             mbx_clr_int,      // 0x67 bit: lower int_pending
++	input             mbx_clr_kick,     // 0x67 bit: clear kick_pending
++	input             mbx_clr_srst,     // 0x67 bit: clear soft_reset_pending
++	input             mbx_cache_clr,    // 0x67 bit4: flush the RAM-ctrl read cache
++
++	output     [15:0] mbx_status,       // 0x64 poll word
++
++	// After a DATA-IN memcpy the ARM writes HPS DDR behind the FPGA's back, so
++	// the Minimig RAM-controller read cache (cpu_cache_new) holds stale lines.
++	// Pulse this into cpu_cacr[3] (the CPU's own cache-clear bit) for both RAM
++	// controllers - the sanctioned runtime flush path - instead of the driver's
++	// multi-KB scratch-arena eviction sweep.
++	output            cache_clr,
++
++	// ---- chip / Z2 DMA slot (drives sdram_ctrl's existing a4091 dma port) --
++	// Kept as ports for wiring symmetry; the mailbox that fills them lands in
++	// PR2 (exec-plan Phase A.2). Tie off until then.
++	output            dma_req,
++	output            dma_rw,
++	output     [31:1] dma_addr,
++	output     [15:0] dma_wdata,
++	input      [15:0] dma_rdata,
++	output      [1:0] dma_bs,
++	input             dma_ack,
++
++	// ---- compact debug bus (hps_ext 0x68 heartbeat) ---------------------
++	output     [63:0] dbg_bus,
++	output            led
++);
++
++// ---------------------------------------------------------------------------
++// shadow register RAM  (256 x 8, dual-port: CPU + HPS mailbox)
++// ---------------------------------------------------------------------------
++reg [7:0] regs [0:255];
++
++integer i;
++initial for (i = 0; i < 256; i = i + 1) regs[i] = 8'h00;
++
++// ---------------------------------------------------------------------------
++// CPU port: "fire exactly once per address phase" edge detect
++// (verbatim from a4091_siop.v - trigger = strobe rising edge OR this lane's
++//  decoded address changed)
++// ---------------------------------------------------------------------------
++reg  reg_rd_hi_d, reg_rd_lo_d, reg_wr_hi_d, reg_wr_lo_d;
++reg  [7:0] reg_hi_addr_d, reg_lo_addr_d;
++wire hi_new  = (reg_hi_addr != reg_hi_addr_d);
++wire lo_new  = (reg_lo_addr != reg_lo_addr_d);
++wire rd_hi_e = reg_rd_hi & (~reg_rd_hi_d | hi_new);
++wire rd_lo_e = reg_rd_lo & (~reg_rd_lo_d | lo_new);
++wire wr_hi_e = reg_wr_hi & (~reg_wr_hi_d | hi_new);
++wire wr_lo_e = reg_wr_lo & (~reg_wr_lo_d | lo_new);
++
++reg reg_ready_r;
++assign reg_ready = reg_ready_r;
++
++// ---------------------------------------------------------------------------
++// kick detect  (ported from a4091_siop.v lines ~687-727)
++// arm on a DSP-MSB (reg 0x2F) write; fire once the trailing DSP-LSB (0x2C)
++// write lands, or after >=6 idle reg-bus cycles for a lone 0x2F write.
++// ---------------------------------------------------------------------------
++reg        kick_arm;
++reg        kick_lo_seen;
++reg  [2:0] kick_idle;
++reg        kick_pending;         // sticky - ARM polls (0x64), clears (0x67)
++
++// ISTAT (0x21) side effects the CPU expects synchronously.
++reg        int_pending;
++reg        soft_reset_pending;   // CPU wrote ISTAT bit6 - ARM re-inits the model
++assign int2 = int_pending;
++
++// Cache-flush stretch: 0x67 bit4 (one clk_sys) -> hold cache_clr high long
++// enough for both RAM controllers (clk_114) to sample it into cpu_cacr[3]
++// across a few !cpu_cs windows. ~64 clk_sys = ~256 clk_114.
++reg  [6:0] cache_clr_cnt;
++assign cache_clr = |cache_clr_cnt;
++
++wire any_reg_bus = reg_rd_hi | reg_rd_lo | reg_wr_hi | reg_wr_lo;
++
++always @(posedge clk) begin
++	if (reset) begin
++		reg_rd_hi_d <= 0; reg_rd_lo_d <= 0; reg_wr_hi_d <= 0; reg_wr_lo_d <= 0;
++		reg_hi_addr_d <= 0; reg_lo_addr_d <= 0;
++		reg_rq_hi <= 8'hff; reg_rq_lo <= 8'hff;
++		reg_ready_r <= 0;
++		kick_arm <= 0; kick_lo_seen <= 0; kick_idle <= 0; kick_pending <= 0;
++		int_pending <= 0; soft_reset_pending <= 0;
++		cache_clr_cnt <= 0;
++	end
++	else begin
++		reg_rd_hi_d <= reg_rd_hi;  reg_rd_lo_d <= reg_rd_lo;
++		reg_wr_hi_d <= reg_wr_hi;  reg_wr_lo_d <= reg_wr_lo;
++		reg_hi_addr_d <= reg_hi_addr;  reg_lo_addr_d <= reg_lo_addr;
++
++		reg_ready_r <= any_reg_bus;   // 1-cycle settle, same contract as a4091_siop
++
++		// -- reads: latch the shadow byte, apply side effects once --
++		if (rd_hi_e) reg_rq_hi <= regs[reg_hi_addr];
++		if (rd_lo_e) reg_rq_lo <= regs[reg_lo_addr];
++		// reading ISTAT (0x21) clears the pending interrupt (real 53C710)
++		if ((rd_hi_e && reg_hi_addr == 8'h21) ||
++		    (rd_lo_e && reg_lo_addr == 8'h21))
++			int_pending <= 1'b0;
++
++		// -- writes: store the byte(s) once per access --
++		if (wr_hi_e) regs[reg_hi_addr] <= reg_wd_hi;
++		if (wr_lo_e) regs[reg_lo_addr] <= reg_wd_lo;
++		// ISTAT bit6 = software reset request
++		if ((wr_hi_e && reg_hi_addr == 8'h21 && reg_wd_hi[6]) ||
++		    (wr_lo_e && reg_lo_addr == 8'h21 && reg_wd_lo[6]))
++			soft_reset_pending <= 1'b1;
++
++		// ---- kick ----------------------------------------------------
++		if ((wr_hi_e && reg_hi_addr == 8'h2f) ||
++		    (wr_lo_e && reg_lo_addr == 8'h2f)) begin
++			kick_arm     <= 1'b1;
++			kick_idle    <= 0;
++			kick_lo_seen <= 1'b0;
++		end
++		else if (kick_arm) begin
++			if (any_reg_bus) kick_idle <= 0;
++			else if (~&kick_idle) kick_idle <= kick_idle + 1'b1;
++			if ((wr_hi_e && reg_hi_addr == 8'h2c) ||
++			    (wr_lo_e && reg_lo_addr == 8'h2c)) kick_lo_seen <= 1'b1;
++		end
++		// DCNTL.STD (reg 0x3B bit 2): the 53C710 driver RESUMES SCRIPTS from
++		// the current DSP by writing this, not by rewriting DSP. Treat it as
++		// an immediate kick.
++		if ((wr_hi_e && reg_hi_addr == 8'h3b && reg_wd_hi[2]) ||
++		    (wr_lo_e && reg_lo_addr == 8'h3b && reg_wd_lo[2]))
++			kick_pending <= 1'b1;
++
++		if (kick_arm && (kick_lo_seen || kick_idle >= 3'd6)) begin
++			kick_arm     <= 1'b0;
++			kick_pending <= 1'b1;
++		end
++
++		// ---- HPS mailbox side ---------------------------------------
++		if (mbx_regs_wr) regs[mbx_addr] <= mbx_wdata;
++		mbx_rdata <= regs[mbx_addr];          // 0x65 burst read (registered)
++
++		if (mbx_set_int)  int_pending        <= 1'b1;
++		if (mbx_clr_int)  int_pending        <= 1'b0;
++		if (mbx_clr_kick) kick_pending       <= 1'b0;
++		if (mbx_clr_srst) soft_reset_pending <= 1'b0;
++
++		if (mbx_cache_clr)       cache_clr_cnt <= 7'd64;
++		else if (|cache_clr_cnt) cache_clr_cnt <= cache_clr_cnt - 1'b1;
++	end
++end
++
++// ---------------------------------------------------------------------------
++// 0x64 poll word
++// ---------------------------------------------------------------------------
++assign mbx_status = { 8'd0,
++                      regs[8'h21][5],     // SIGP  (CPU asked for reselect)
++                      3'd0,
++                      dma_req,
++                      soft_reset_pending,
++                      int_pending,
++                      kick_pending };
++
++// ---------------------------------------------------------------------------
++// chip / Z2 DMA slot - tied off until PR2 (exec-plan Phase A.2)
++// ---------------------------------------------------------------------------
++assign dma_req   = 1'b0;
++assign dma_rw    = 1'b1;
++assign dma_addr  = 31'd0;
++assign dma_wdata = 16'd0;
++assign dma_bs    = 2'b00;
++
++assign led = kick_pending | int_pending;
++
++assign dbg_bus = { 32'hA4091B01,          // signature
++                   regs[8'h0c],           // DSTAT shadow
++                   regs[8'h21],           // ISTAT shadow
++                   5'd0, soft_reset_pending, int_pending, kick_pending };
++
++endmodule
+diff --git a/rtl/cpu_wrapper.v b/rtl/cpu_wrapper.v
+index e704348..f03ea77 100644
+--- a/rtl/cpu_wrapper.v
++++ b/rtl/cpu_wrapper.v
+@@ -93,9 +93,46 @@ module cpu_wrapper
+ 	output reg  [3:0] z3ram_base1,
+ 	output reg        z3ram_ena1,
+ 
+-	output            dcache_sw_en
++	output            dcache_sw_en,
++
++	// ---- A4091 Zorro III NCR 53C710 SCSI - software SIOP bridge (see A4091/)
++	// The 53C710 model / SCRIPTS VM / SCSI-2 target run on the HPS ARM; the
++	// FPGA side is autoconfig + boot ROM + register window + shadow-reg RAM.
++	// No FPGA DMA master: the ARM moves DATA phases straight into HPS DDR.
++	input             a4091_ena,
++	input       [2:0] a4091_scsi_id,
++	input       [4:0] a4091_dip,
++	output            a4091_int2,
++	output            a4091_cache_clr,
++	input             a4091_rom_wr,
++	input      [15:0] a4091_rom_addr,
++	input       [7:0] a4091_rom_data,
++	// HPS bridge mailbox (hps_ext.v <-> a4091_bridge)
++	input       [7:0] a4091_mbx_addr,
++	input             a4091_mbx_regs_wr,
++	input       [7:0] a4091_mbx_wdata,
++	output      [7:0] a4091_mbx_rdata,
++	input             a4091_mbx_set_int,
++	input             a4091_mbx_clr_int,
++	input             a4091_mbx_clr_kick,
++	input             a4091_mbx_clr_srst,
++	input             a4091_mbx_cache_clr,
++	output     [15:0] a4091_mbx_status,
++	output     [63:0] a4091_dbg_bus
+ );
+ 
++// A4091 only on the 32-bit TG68 CPU (Zorro III needs a 32-bit bus)
++wire a4091_on = a4091_ena & cpucfg[1];
++
++// forward declarations (the a4091 instance is at the bottom of the module)
++wire [3:0]  a4091_ac_rdata;
++wire [7:0]  a4091_board_base;
++wire        a4091_cfgd;
++wire [15:0] a4091_brd_dout;
++wire        a4091_brd_selack;
++wire        a4091_brd_ready;
++
++
+ wire dcache_sw_en_p;
+ assign dcache_sw_en = cpucfg[1] ? dcache_sw_en_p : 1'b1;
+ 
+@@ -151,6 +188,7 @@ assign fastchip_rnw = wr;
+ reg  [31:0] cpu_addr;
+ reg  [15:0] cpu_dout;
+ wire [15:0] cpu_din = ramsel ? ramdat :
++                      a4091_brd_selack ? a4091_brd_dout :
+                       fastchip_selack ? fastchip_dout :
+                       cdtv_selack ? cdtv_din :
+                       {sel_autoconfig ? autocfg_data : chip_data[15:12], chip_data[11:0]};
+@@ -311,7 +349,7 @@ always @(posedge clk) begin
+ end
+ 
+ wire stock_speed   = cpucfg[2];
+-wire clkena_p_base = ~cpu_req | chipready | ramready | fastchip_ready;
++wire clkena_p_base = ~cpu_req | chipready | ramready | fastchip_ready | a4091_brd_ready;
+ 
+ reg [3:0] cooldown;
+ always @(posedge clk) begin
+@@ -324,7 +362,7 @@ wire clkena_p_throttled = clkena_p_base & (cooldown == 4'd0);
+ reg       chipreq;
+ reg [2:0] cpu_ipl;
+ always @(posedge clk) begin
+-	chipreq <= cpu_req & ~ramsel & ~fastchip_selack;
++	chipreq <= cpu_req & ~ramsel & ~fastchip_selack & ~a4091_brd_selack;
+ 	cpu_ipl <= ipl_i;
+ end
+ 
+@@ -515,9 +553,20 @@ always @(*) begin
+ 			  default:;
+ 		endcase
+ 	end
++	// A4091 - last board in the chain, after the Zorro III RAM (the HPS side
++	// assumes Z3 fast RAM at $40000000)
++	else if (ac_a4091_turn) begin
++		autocfg_data = a4091_ac_rdata;
++	end
+ end
+ 
+-wire sel_autoconfig = (chip_addr[23:16] == 8'b11101000) && (ac_memcard || ac_toccata || ac_a2065 || ac_a2091 || ac_cdtv); //$E80000 - $E8FFFF
++// A4091 gets the $E8xxxx bus only once every other board has configured or
++// shut up. a4091.v drives its own nibbles and latches its own base register.
++wire ac_a4091_turn = a4091_on & ~a4091_cfgd
++                   & ~|ac_memcard & ~ac_toccata & ~ac_a2065 & ~ac_a2091 & ~ac_cdtv;
++
++
++wire sel_autoconfig = (chip_addr[23:16] == 8'b11101000) && (ac_memcard || ac_toccata || ac_a2065 || ac_a2091 || ac_cdtv || ac_a4091_turn); //$E80000 - $E8FFFF
+ 
+ always @(posedge clk) begin
+ 	reg old_uds;
+@@ -596,4 +645,73 @@ assign toccata_ena = ~ac_toccata & ~cdtv_mode;
+ assign a2065_ena   = ~ac_a2065;
+ assign a2091_ena   = a2091_cfgd;
+ 
++///////////////////// A4091 (Zorro III NCR 53C710 SCSI) ////////////////////
++
++reg old_uds_g;
++always @(posedge clk) old_uds_g <= chip_uds;
++
++// 16MB board window at the AutoConfig'd Zorro III base (boot ROM 0..$7FFFFF,
++// 53C710 register window at +$800000, DIP byte at +$8C0003).
++wire sel_a4091 = a4091_cfgd & cpu_req & (cpu_addr_p[31:24] == a4091_board_base);
++
++a4091 a4091_inst
++(
++	.clk        (clk),
++	.reset      (~reset | ~reset_out),
++
++	.enable     (a4091_on),
++	.cfg_scsi_id (a4091_scsi_id),
++	.cfg_dip     (a4091_dip),
++
++	.ac_cycle   (sel_autoconfig & ac_a4091_turn),
++	.ac_reg     (chip_addr[6:1]),
++	.ac_write   (sel_autoconfig & ac_a4091_turn & ~chip_rw & ~chip_uds & old_uds_g),
++	.ac_wdata   (cpu_dout),
++	.ac_rdata   (a4091_ac_rdata),
++	.ac_done    (),
++
++	.board_base (a4091_board_base),
++	.board_cfgd (a4091_cfgd),
++	.brd_sel    (sel_a4091),
++	.brd_addr   (cpu_addr_p[23:0]),
++	.brd_din    (cpu_dout_p),
++	.brd_dout   (a4091_brd_dout),
++	.brd_lds    (~lds_p),
++	.brd_uds    (~uds_p),
++	.brd_rnw    (wr_p),
++	.brd_selack (a4091_brd_selack),
++	.brd_ready  (a4091_brd_ready),
++
++	// no FPGA bus-master DMA in the software-SIOP design
++	.dma_req    (),
++	.dma_rw     (),
++	.dma_addr   (),
++	.dma_wdata  (),
++	.dma_rdata  (16'd0),
++	.dma_bs     (),
++	.dma_ack    (1'b0),
++
++	.int2       (a4091_int2),
++
++	.rom_wr     (a4091_rom_wr),
++	.rom_addr   (a4091_rom_addr),
++	.rom_data   (a4091_rom_data),
++
++	.mbx_addr     (a4091_mbx_addr),
++	.mbx_regs_wr  (a4091_mbx_regs_wr),
++	.mbx_wdata    (a4091_mbx_wdata),
++	.mbx_rdata    (a4091_mbx_rdata),
++	.mbx_set_int  (a4091_mbx_set_int),
++	.mbx_clr_int  (a4091_mbx_clr_int),
++	.mbx_clr_kick (a4091_mbx_clr_kick),
++	.mbx_clr_srst (a4091_mbx_clr_srst),
++	.mbx_cache_clr(a4091_mbx_cache_clr),
++	.cache_clr    (a4091_cache_clr),
++	.mbx_status   (a4091_mbx_status),
++
++	.dbg_bus    (a4091_dbg_bus),
++
++	.led        ()
++);
++
+ endmodule
+diff --git a/rtl/minimig.v b/rtl/minimig.v
+index 09dea7e..414dd70 100644
+--- a/rtl/minimig.v
++++ b/rtl/minimig.v
+@@ -258,6 +258,7 @@ module minimig
+ 	input   [7:0] a2091_base,
+ 	output        a2091_present,   // board enabled (default on)
+ 	output        a2091_rom,       // boot ROM loaded
++	output        a4091_hps_en,    // A4091 enable, set by the HPS through the A2091 mailbox
+ 	input         z2ram_ena,
+ 	input   [1:0] a2091_hp_cmd,
+ 	input         a2091_hp_start,
+@@ -338,7 +339,10 @@ module minimig
+ 	output [63:0] a2065_mem_writedata,
+ 	output [7:0]  a2065_mem_byteenable,
+ 	output        a2065_mem_write,
+-	input         a2065_mem_waitrequest
++	input         a2065_mem_waitrequest,
++
++	// A4091 Zorro III SCSI (software SIOP) interrupt
++	input         a4091_int2
+ );
+ 
+ 
+@@ -598,7 +602,7 @@ paula PAULA1
+ 	.sof(sof),
+ 	.strhor(strhor_paula),
+ 	.vblint(vbl_int),
+-	.int2(int2|(ide_fast ? ide_ext_irq : gayle_irq)|a2065_int2_sync|akiko_irq|cdtv_irq_w|a2091_int2),
++	.int2(int2|(ide_fast ? ide_ext_irq : gayle_irq)|a2065_int2_sync|akiko_irq|cdtv_irq_w|a2091_int2|a4091_int2),
+ 	.int3(int3),
+ 	.int6(int6 | int6_toccata),
+ 	._ipl(_iplx),
+@@ -1068,7 +1072,7 @@ a2065 a2065_inst (
+ // A2091 SCSI host adapter (DMAC + WD33C93A). The WD33C93 command engine and
+ // the SCSI targets run on the HPS; see rtl/a2091.v.
+ 
+-a2091 a2091_inst
++a2091 #(.HAS_A4091(1)) a2091_inst
+ (
+ 	.clk        (clk),
+ 	.reset      (reset),
+@@ -1086,6 +1090,7 @@ a2091 a2091_inst
+ 	.int2       (a2091_int2),
+ 	.enabled    (a2091_present),
+ 	.rom_valid  (a2091_rom),
++	.a4091_en   (a4091_hps_en),
+ 
+ 	.hp_cmd     (a2091_hp_cmd),
+ 	.hp_start   (a2091_hp_start),

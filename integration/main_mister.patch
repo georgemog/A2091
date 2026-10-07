@@ -1,0 +1,196 @@
+diff --git a/menu.cpp b/menu.cpp
+index c084ac8..aa3abd0 100644
+--- a/menu.cpp
++++ b/menu.cpp
+@@ -63,6 +63,7 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
+ #include "joymapping.h"
+ #include "recent.h"
+ #include "support.h"
++#include "support/minimig/minimig_a2091.h"
+ #include "bootcore.h"
+ #include "ide.h"
+ #include "profiling.h"
+@@ -182,6 +183,7 @@ enum MENU
+ 	MENU_MINIMIG_DISK1,
+ 	MENU_MINIMIG_DISK2,
+ 	MENU_MINIMIG_HDFFILE_SELECTED,
++	MENU_MINIMIG_A2091FILE_SELECTED,
+ 	MENU_MINIMIG_CD32FILE_SELECTED,
+ 	MENU_MINIMIG_CDTVFILE_SELECTED,
+ 	MENU_MINIMIG_CD32FILE_START,
+@@ -359,6 +361,7 @@ static char Selected_S[16][1024] = {};
+ static char Selected_tmp[1024] = {};
+ static char Selected_CD32[1024] = {};
+ static char Selected_CDTV[1024] = {};
++static char Selected_A2091[7][1024] = {};
+ 
+ void StoreIdx_F(int idx, const char *path)
+ {
+@@ -6954,6 +6957,44 @@ void HandleUI(void)
+ 				}
+ 			}
+ 
++			// A2091 SCSI (Zorro II). menusub 15 = enable, 16..29 = ID0..ID6
++			// type/path pairs. Takes effect on the next reset.
++			if (a2091_core_supported())
++			{
++				MenuWrite(m++);
++				int a2091_on = (minimig_config.a2091_cfg & 1) ? 1 : 0;
++				strcpy(s, " A2091 SCSI       : ");
++				strcat(s, a2091_on ? "Enabled" : "Disabled");
++				MenuWrite(m++, s, menusub == 15, 0);
++				menumask |= ((uint64_t)1 << 15);
++
++				if (a2091_on)
++				{
++					for (uint i = 0; i < 7; i++)
++					{
++						uint tsub = 16 + i * 2;
++						snprintf(s, sizeof(s), " \x1bID%u            : ", i);
++						strcat(s, minimig_config.a2091_hdd[i].cfg ? "Fixed/HDD" : "Disabled");
++						MenuWrite(m++, s, menusub == tsub, 0);
++						menumask |= ((uint64_t)1 << tsub);
++
++						if (minimig_config.a2091_hdd[i].filename[0])
++						{
++							strcpy(s, "                                ");
++							char *path = HomeDir();
++							int len = strlen(path);
++							char *name = minimig_config.a2091_hdd[i].filename;
++							if (!strncasecmp(name, path, len)) name += len + 1;
++							strncpy(&s[3], name, 25);
++						}
++						else strcpy(s, "   ** not selected **");
++						enable = minimig_config.a2091_hdd[i].cfg ? 1 : 0;
++						if (enable) menumask |= ((uint64_t)1 << (tsub + 1));
++						MenuWrite(m++, s, menusub == (tsub + 1), enable == 0);
++					}
++				}
++			}
++
+ 			while (m - firstmenu < OsdGetSize() - 1) MenuWrite(m++);
+ 			MenuWrite(m++, STD_BACK, menusub == 14, 0);
+ 
+@@ -7076,6 +7117,39 @@ void HandleUI(void)
+ 				menustate = MENU_MINIMIG_MAIN1;
+ 				menusub = 9;
+ 			}
++			else if (menusub == 15) // A2091 enable
++			{
++				if (select || minus || plus)
++				{
++					minimig_config.a2091_cfg ^= 1;
++					menustate = MENU_MINIMIG_DISK1;
++				}
++			}
++			else if (menusub >= 16 && menusub <= 29) // A2091 ID0..ID6
++			{
++				int idx = (menusub - 16) / 2;
++				if (!(menusub & 1)) // even = type line
++				{
++					if (select || minus || plus)
++					{
++						minimig_config.a2091_hdd[idx].cfg = minimig_config.a2091_hdd[idx].cfg ? 0 : 1;
++						menustate = MENU_MINIMIG_DISK1;
++					}
++				}
++				else if (select || recent) // odd = path line
++				{
++					fs_Options = SCANO_DIR | SCANO_UMOUNT;
++					fs_MenuSelect = MENU_MINIMIG_A2091FILE_SELECTED;
++					fs_MenuCancel = MENU_MINIMIG_DISK1;
++					strcpy(fs_pFileExt, "HDFVHDIMGDSK");
++					if (select)
++					{
++						if (!Selected_A2091[idx][0]) memcpy(Selected_A2091[idx], minimig_config.a2091_hdd[idx].filename, sizeof(Selected_A2091[idx]));
++						SelectFile(Selected_A2091[idx], fs_pFileExt, fs_Options, fs_MenuSelect, fs_MenuCancel, 504);
++					}
++					else if (recent_init(504)) menustate = MENU_RECENT1;
++				}
++			}
+ 		}
+ 
+ 		if (menu)
+@@ -7090,6 +7164,22 @@ void HandleUI(void)
+ 		}
+ 		break;
+ 
++	case MENU_MINIMIG_A2091FILE_SELECTED:
++		{
++			int idx = (menusub - 16) / 2;
++			if (idx < 0) idx = 0;
++			if (idx > 6) idx = 6;
++			memcpy(Selected_A2091[idx], selPath, sizeof(Selected_A2091[idx]));
++			recent_update(SelectedDir, selPath, SelectedLabel, 504);
++			uint len = strlen(selPath);
++			if (len > sizeof(minimig_config.a2091_hdd[idx].filename) - 1) len = sizeof(minimig_config.a2091_hdd[idx].filename) - 1;
++			if (len) memcpy(minimig_config.a2091_hdd[idx].filename, selPath, len);
++			minimig_config.a2091_hdd[idx].filename[len] = 0;
++			if (!minimig_config.a2091_hdd[idx].cfg) minimig_config.a2091_hdd[idx].cfg = 1;
++			menustate = MENU_MINIMIG_DISK1;
++		}
++		break;
++
+ 	case MENU_MINIMIG_HDFFILE_SELECTED:
+ 		{
+ 			memcpy(Selected_S[(menusub - 7) / 2], selPath, sizeof(Selected_S[(menusub - 2) / 2]));
+diff --git a/support/minimig/minimig_config.cpp b/support/minimig/minimig_config.cpp
+index c0a5b92..3e64cf7 100644
+--- a/support/minimig/minimig_config.cpp
++++ b/support/minimig/minimig_config.cpp
+@@ -20,6 +20,7 @@
+ #include "minimig_a2065.h"
+ #include "akiko_cd32.h"
+ #include "cdtv_cd.h"
++#include "minimig_a2091.h"
+ #include <unistd.h>
+ 
+ const char *config_memory_chip_msg[] = { "512K", "1M",   "1.5M", "2M" };
+@@ -461,6 +462,10 @@ static void ApplyConfiguration(char reloadkickstart)
+ 	minimig_cd_drive_open(0, minimig_config.cd32_drive.cfg ? minimig_config.cd32_drive.filename : "");
+ 	minimig_cd_drive_open(1, minimig_config.cdtv_drive.cfg ? minimig_config.cdtv_drive.filename : "");
+ 
++	// CPU is halted here; the board must be enabled before the reset that
++	// runs autoconfig
++	a2091_apply_config();
++
+ 	minimig_ConfigMemory(memcfg);
+ 	minimig_ConfigCPU(minimig_config.cpu);
+ 
+diff --git a/support/minimig/minimig_config.h b/support/minimig/minimig_config.h
+index e5ad826..076b553 100644
+--- a/support/minimig/minimig_config.h
++++ b/support/minimig/minimig_config.h
+@@ -81,6 +81,12 @@ typedef struct
+ 
+ 	mm_userportMode userport;
+ 	mm_floppyexTYPE externalfloppy;
++
++	// A2091 SCSI (Zorro II, DMAC + WD33C93A). Older configs end before
++	// these fields and load with the board disabled.
++	uint8_t         a2091_cfg;          // bit0 = enabled
++	uint8_t         a2091_reserved[3];
++	mm_hardfileTYPE a2091_hdd[7];       // SCSI IDs 0..6
+ } mm_configTYPE;
+ 
+ extern mm_configTYPE minimig_config;
+diff --git a/user_io.cpp b/user_io.cpp
+index caa641a..8d08f6a 100644
+--- a/user_io.cpp
++++ b/user_io.cpp
+@@ -36,6 +36,7 @@
+ #include "ide_cdrom.h"
+ #include "support/minimig/akiko_cd32.h"
+ #include "support/minimig/cdtv_cd.h"
++#include "support/minimig/minimig_a2091.h"
+ #ifdef PROFILING
+ #include "profiling.h"
+ #endif
+@@ -3357,6 +3358,7 @@ void user_io_poll()
+ 
+ 		minimig_share_poll();
+ 		a2065_poll();
++		a2091_poll();
+ 	}
+ 
+ 	next_enet_poll();

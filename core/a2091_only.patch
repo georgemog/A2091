@@ -1,0 +1,1337 @@
+diff --git a/Minimig.sv b/Minimig.sv
+index 6d37cee..99843b4 100644
+--- a/Minimig.sv
++++ b/Minimig.sv
+@@ -133,6 +133,24 @@ wire        cdtv_nvr_dirty;
+ wire        cdtv_card_dirty;
+ wire        cdtv_req;
+ 
++wire  [1:0] a2091_hp_cmd;
++wire        a2091_hp_start;
++wire        a2091_hp_strobe;
++wire [15:0] a2091_hp_wdata;
++wire [15:0] a2091_hp_rdata;
++wire [15:0] a2091_hp_status;
++
++wire        a2091_present;
++wire        a2091_rom;
++wire        a2091_ena;
++wire  [7:0] a2091_base;
++wire        a2091_dma_req;
++wire        a2091_dma_we;
++wire [23:1] a2091_dma_addr;
++wire [15:0] a2091_dma_wdata;
++wire [15:0] a2091_dma_rdata;
++wire        a2091_dma_ack;
++
+ wire        akiko_dma_req;
+ wire        akiko_dma_we;
+ wire [23:0] akiko_dma_baddr;
+@@ -377,6 +395,10 @@ cpu_wrapper cpu_wrapper
+ 	.toccata_ena  (toccata_ena     ),
+ 	.a2065_ena    (a2065_ena       ),
+ 	.a2065_base   (a2065_base      ),
++	.a2091_present(a2091_present   ),
++	.a2091_rom    (a2091_rom       ),
++	.a2091_ena    (a2091_ena       ),
++	.a2091_base   (a2091_base      ),
+ 	.toccata_base (toccata_base    ),
+ 	.cdtv_base    (cdtv_base       ),
+ 	.cdtv_mode    (cdtv_mode       ),
+@@ -494,6 +516,13 @@ chipdma_arb chipdma_arb
+ 	.cdtv_dma_rbyte  (                     ),
+ 	.cdtv_dma_ack    (cdtv_dma_ack         ),
+ 
++	.a2091_dma_req   (a2091_dma_req        ),
++	.a2091_dma_we    (a2091_dma_we         ),
++	.a2091_dma_addr  (a2091_dma_addr       ),
++	.a2091_dma_wdata (a2091_dma_wdata      ),
++	.a2091_dma_rdata (a2091_dma_rdata      ),
++	.a2091_dma_ack   (a2091_dma_ack        ),
++
+ 	.chip_out_addr   (arb_chip_addr        ),
+ 	.chip_out_l      (arb_chip_l           ),
+ 	.chip_out_u      (arb_chip_u           ),
+@@ -822,6 +851,25 @@ minimig minimig
+ 	.cdtv_base    (cdtv_base),
+ 	.a2065_ena  (a2065_ena),
+ 	.a2065_base (a2065_base),
++
++	.a2091_ena       (a2091_ena       ),
++	.a2091_base      (a2091_base      ),
++	.a2091_present   (a2091_present   ),
++	.a2091_rom       (a2091_rom       ),
++	.z2ram_ena       (z2ram_ena       ),
++	.a2091_hp_cmd    (a2091_hp_cmd    ),
++	.a2091_hp_start  (a2091_hp_start  ),
++	.a2091_hp_strobe (a2091_hp_strobe ),
++	.a2091_hp_wdata  (a2091_hp_wdata  ),
++	.a2091_hp_rdata  (a2091_hp_rdata  ),
++	.a2091_hp_status (a2091_hp_status ),
++	.a2091_dma_req   (a2091_dma_req   ),
++	.a2091_dma_we    (a2091_dma_we    ),
++	.a2091_dma_addr  (a2091_dma_addr  ),
++	.a2091_dma_wdata (a2091_dma_wdata ),
++	.a2091_dma_rdata (a2091_dma_rdata ),
++	.a2091_dma_ack   (a2091_dma_ack   ),
++
+ 	.toccata_aud_left (toccata_aud_left),
+ 	.toccata_aud_right(toccata_aud_right),
+ 
+diff --git a/files.qip b/files.qip
+index 03842be..0036c13 100644
+--- a/files.qip
++++ b/files.qip
+@@ -1,31 +1,32 @@
+-set_global_assignment -name QIP_FILE rtl/tg68k/TG68K.qip
+-set_global_assignment -name QIP_FILE rtl/fx68k/fx68k.qip
+-set_global_assignment -name QIP_FILE rtl/ram.qip
+-set_global_assignment -name QIP_FILE rtl/agnus.qip
+-set_global_assignment -name QIP_FILE rtl/cia.qip
+-set_global_assignment -name QIP_FILE rtl/gayle.qip
+-set_global_assignment -name QIP_FILE rtl/paula.qip
+-set_global_assignment -name QIP_FILE rtl/denise.qip
+-set_global_assignment -name QIP_FILE rtl/fpga-toccata/toccata.qip
+-set_global_assignment -name QIP_FILE rtl/misterfloppy.qip
+-set_global_assignment -name QIP_FILE rtl/A2065/a2065.qip
+-set_global_assignment -name QIP_FILE rtl/akiko.qip
+-set_global_assignment -name QIP_FILE rtl/cdtv.qip
+-set_global_assignment -name VERILOG_FILE rtl/gary.v
+-set_global_assignment -name VERILOG_FILE rtl/rtg.v
+-set_global_assignment -name VERILOG_FILE rtl/chipdma_arb.v
+-set_global_assignment -name VERILOG_FILE rtl/memory_router.v
+-set_global_assignment -name VERILOG_FILE rtl/fastchip.v
+-set_global_assignment -name VERILOG_FILE rtl/userio.v
+-set_global_assignment -name VERILOG_FILE rtl/cart.v
+-set_global_assignment -name VERILOG_FILE rtl/amiga_clk.v
+-set_global_assignment -name VERILOG_FILE rtl/minimig_syscontrol.v
+-set_global_assignment -name VERILOG_FILE rtl/minimig_sram_bridge.v
+-set_global_assignment -name VERILOG_FILE rtl/minimig_m68k_bridge.v
+-set_global_assignment -name VERILOG_FILE rtl/minimig_bankmapper.v
+-set_global_assignment -name VERILOG_FILE rtl/minimig.v
+-set_global_assignment -name VERILOG_FILE rtl/cpu_wrapper.v
+-set_global_assignment -name VERILOG_FILE rtl/cdda.v
+-set_global_assignment -name VERILOG_FILE hps_ext.v
+-set_global_assignment -name SYSTEMVERILOG_FILE Minimig.sv
+-set_global_assignment -name SDC_FILE Minimig.sdc
++set_global_assignment -name QIP_FILE rtl/tg68k/TG68K.qip
++set_global_assignment -name QIP_FILE rtl/fx68k/fx68k.qip
++set_global_assignment -name QIP_FILE rtl/ram.qip
++set_global_assignment -name QIP_FILE rtl/agnus.qip
++set_global_assignment -name QIP_FILE rtl/cia.qip
++set_global_assignment -name QIP_FILE rtl/gayle.qip
++set_global_assignment -name QIP_FILE rtl/paula.qip
++set_global_assignment -name QIP_FILE rtl/denise.qip
++set_global_assignment -name QIP_FILE rtl/fpga-toccata/toccata.qip
++set_global_assignment -name QIP_FILE rtl/misterfloppy.qip
++set_global_assignment -name QIP_FILE rtl/A2065/a2065.qip
++set_global_assignment -name QIP_FILE rtl/akiko.qip
++set_global_assignment -name QIP_FILE rtl/cdtv.qip
++set_global_assignment -name VERILOG_FILE rtl/gary.v
++set_global_assignment -name VERILOG_FILE rtl/rtg.v
++set_global_assignment -name VERILOG_FILE rtl/chipdma_arb.v
++set_global_assignment -name VERILOG_FILE rtl/a2091.v
++set_global_assignment -name VERILOG_FILE rtl/memory_router.v
++set_global_assignment -name VERILOG_FILE rtl/fastchip.v
++set_global_assignment -name VERILOG_FILE rtl/userio.v
++set_global_assignment -name VERILOG_FILE rtl/cart.v
++set_global_assignment -name VERILOG_FILE rtl/amiga_clk.v
++set_global_assignment -name VERILOG_FILE rtl/minimig_syscontrol.v
++set_global_assignment -name VERILOG_FILE rtl/minimig_sram_bridge.v
++set_global_assignment -name VERILOG_FILE rtl/minimig_m68k_bridge.v
++set_global_assignment -name VERILOG_FILE rtl/minimig_bankmapper.v
++set_global_assignment -name VERILOG_FILE rtl/minimig.v
++set_global_assignment -name VERILOG_FILE rtl/cpu_wrapper.v
++set_global_assignment -name VERILOG_FILE rtl/cdda.v
++set_global_assignment -name VERILOG_FILE hps_ext.v
++set_global_assignment -name SYSTEMVERILOG_FILE Minimig.sv
++set_global_assignment -name SDC_FILE Minimig.sdc
+diff --git a/hps_ext.v b/hps_ext.v
+index 9a1ab20..8723412 100644
+--- a/hps_ext.v
++++ b/hps_ext.v
+@@ -84,7 +84,17 @@ module hps_ext
+ 	output reg        cdtv_cs_card,
+ 	input             cdtv_req,
+ 	input             cdtv_nvr_dirty,
+-	input             cdtv_card_dirty
++	input             cdtv_card_dirty,
++
++	// A2091 SCSI mailbox ('h70 read, 'h71 write, 'h72 buffer read).
++	// Word 0 of each transfer returns a2091_hp_status; data words then
++	// stream through a2091_hp_wdata / a2091_hp_rdata (see rtl/a2091.v).
++	output reg  [1:0] a2091_hp_cmd,
++	output reg        a2091_hp_start,
++	output reg        a2091_hp_strobe,
++	output reg [15:0] a2091_hp_wdata,
++	input      [15:0] a2091_hp_rdata,
++	input      [15:0] a2091_hp_status
+ );
+ 
+ assign EXT_BUS[15:0] = io_fpga ? fpga_dout : io_dout;
+@@ -98,6 +108,8 @@ localparam EXT_CMD_MIN  = UIO_GET_VMODE;
+ localparam EXT_CMD_MAX  = UIO_SET_VPOS;
+ localparam EXT_CMD_MIN2 = 'h61;
+ localparam EXT_CMD_MAX2 = 'h63;
++localparam EXT_CMD_MIN3 = 'h70;
++localparam EXT_CMD_MAX3 = 'h72;
+ 
+ localparam UIO_MOUSE     = 'h04;
+ localparam UIO_KEYBOARD  = 'h05;
+@@ -120,6 +132,7 @@ always@(posedge clk_sys) begin : main_proc
+ 	cdda_wr <= 0;
+ 	{akiko_rd, akiko_wr} <= 0;
+ 	{cdtv_rd, cdtv_wr} <= 0;
++	{a2091_hp_start, a2091_hp_strobe} <= 0;
+ 	if((ide_rd | ide_wr) & ~&ide_addr[3:0]) ide_addr <= ide_addr + 1'd1;
+ 
+ 	if(~io_uio) begin
+@@ -165,10 +178,21 @@ always@(posedge clk_sys) begin : main_proc
+ 
+ 		if(byte_cnt == 0) begin
+ 			cmd <= io_din;
+-			dout_en <= (io_din >= EXT_CMD_MIN && io_din <= EXT_CMD_MAX) || (io_din >= EXT_CMD_MIN2 && io_din <= EXT_CMD_MAX2);
++			dout_en <= (io_din >= EXT_CMD_MIN && io_din <= EXT_CMD_MAX) || (io_din >= EXT_CMD_MIN2 && io_din <= EXT_CMD_MAX2)
++			        || (io_din >= EXT_CMD_MIN3 && io_din <= EXT_CMD_MAX3);
++			if(io_din >= EXT_CMD_MIN3 && io_din <= EXT_CMD_MAX3) begin
++				io_dout        <= a2091_hp_status;
++				a2091_hp_cmd   <= io_din[1:0];
++				a2091_hp_start <= 1;
++			end
+ 			if(io_din == 'h63) io_dout <= {2'b00, cdtv_card_dirty, cdtv_nvr_dirty, akiko_req, akiko_sec_req, akiko_rx_busy, cdda_req, akiko_nvr_dirty, cdtv_req, ide_req};
+ 			if(io_din == UIO_GET_VMODE) io_dout <= 1;
+ 		end else begin
++			if(cmd >= EXT_CMD_MIN3 && cmd <= EXT_CMD_MAX3) begin
++				io_dout         <= a2091_hp_rdata;
++				a2091_hp_wdata  <= io_din;
++				a2091_hp_strobe <= 1;
++			end
+ 			case(cmd)
+ 
+ 				UIO_MOUSE:
+diff --git a/rtl/a2091.v b/rtl/a2091.v
+new file mode 100644
+index 0000000..9a07356
+--- /dev/null
++++ b/rtl/a2091.v
+@@ -0,0 +1,705 @@
++// SPDX-License-Identifier: GPL-3.0-or-later
++//
++// Commodore A2091 (DMAC rev 2 + WD33C93A) Zorro II SCSI host adapter
++// for the Minimig-AGA MiSTer core.
++//
++// Split between FPGA and HPS (ARM), modelled on amiberry/WinUAE a2091.cpp:
++//
++//   FPGA (this module)
++//     - 64 KB Zorro II board window (autoconfig itself lives in cpu_wrapper)
++//     - boot ROM (16 KB, loaded by the ARM at core start)
++//     - DMAC registers: CNTR, ISTR, WTC, ACR, ST_DMA/SP_DMA/CINT/FLUSH, DIP
++//     - WD33C93A register file (SASR/SCMD indirect access) with the bus-visible
++//       side effects done locally so the 68k never waits on the ARM:
++//         * SASR auto-increment
++//         * AUX STATUS (INT/BSY/DBR)
++//         * reading SCSI STATUS clears INT
++//         * a status FIFO the ARM fills; entries are presented one at a time,
++//           the next one only after the 68k has read SCSI STATUS
++//     - a word DMA engine with a 4 KB buffer, driven by the ARM, mastering
++//       Amiga memory through chipdma_arb (chip / slow / Zorro II RAM)
++//     - INT2
++//
++//   ARM (support/minimig/minimig_a2091.cpp)
++//     - WD33C93 command engine (select-and-transfer, transfer info, ...)
++//     - SCSI-2 direct-access targets backed by .hdf files
++//
++// HPS mailbox (hps_ext commands 'h70..'h72). Word 0 of every transfer returns
++// the status word. Following words:
++//   'h70 READ  : item k = see hp_rdata mux below (WD regs, DMAC state, ...)
++//   'h71 WRITE : word 1 = opcode, words 2.. = operands (see OP_*)
++//   'h72 BUFRD : item k = dma buffer word k
++//
++// This module is clocked by clk_sys (28 MHz), the same clock as the chip bus,
++// hps_ext and chipdma_arb.
++
++module a2091
++(
++	input             clk,
++	input             reset,          // Amiga reset (CPU RESET / system)
++
++	// board configuration from cpu_wrapper autoconfig
++	input             configured,
++	input             z2ram_ena,      // Zorro II fast RAM present at $200000
++
++	// chip bus
++	input             sel,            // board window selected (base matched)
++	input      [15:1] addr,
++	input      [15:0] din,
++	output     [15:0] dout,
++	input             rd,
++	input             hwr,
++	input             lwr,
++
++	output            int2,
++
++	// board enable: on by default so the board autoconfigs without any HPS
++	// support; the ARM can switch it off. Survives Amiga resets.
++	output reg        enabled,
++	// a boot ROM has been loaded: autoconfig advertises the DiagArea
++	output reg        rom_valid,
++
++	// HPS mailbox (hps_ext)
++	input       [1:0] hp_cmd,         // command - 'h70
++	input             hp_start,       // pulse: command word received
++	input             hp_strobe,      // pulse: data word received
++	input      [15:0] hp_wdata,
++	output reg [15:0] hp_rdata,     // combinational: valid 1 clk after a strobe
++	output     [15:0] hp_status,
++
++	// DMA master port (chipdma_arb)
++	output reg        dma_req,
++	output reg        dma_we,
++	output reg [23:1] dma_addr,
++	output reg [15:0] dma_wdata,
++	input      [15:0] dma_rdata,
++	input             dma_ack
++);
++
++// ---------------------------------------------------------------------------
++// DMAC register bits (DMAC rev 2, amiberry COMMODORE_DMAC)
++localparam CNTR_TCEN  = 7;
++localparam CNTR_PREST = 6;
++localparam CNTR_PDMD  = 5;
++localparam CNTR_INTEN = 4;
++localparam CNTR_DDIR  = 3;
++
++localparam ISTR_INT_F  = 7;
++localparam ISTR_INTS   = 6;
++localparam ISTR_E_INT  = 5;
++localparam ISTR_INT_P  = 4;
++localparam ISTR_FE_FLG = 0;
++
++// WD33C93 registers
++localparam WD_OWN_ID      = 5'h00;
++localparam WD_SCSI_STATUS = 5'h17;
++localparam WD_COMMAND     = 5'h18;
++localparam WD_DATA        = 5'h19;
++localparam WD_QUEUE_TAG   = 5'h1a;
++localparam WD_AUX_STATUS  = 5'h1f;
++
++// HPS write opcodes ('h71 word 1)
++localparam OP_WDREGS = 8'h00;   // low byte = first register; words 2.. = values
++localparam OP_CTRL   = 8'h01;   // word 2 = control bits (CTL_*)
++localparam OP_STATUS = 8'h02;   // words 2.. = {delay, status} pushed to the FIFO
++localparam OP_ACR    = 8'h03;   // word 2 = ACR[23:16], word 3 = ACR[15:0]
++localparam OP_BUFWR  = 8'h04;   // words 2.. = dma buffer words from 0
++localparam OP_DMA    = 8'h05;   // word 2 = addr[23:16], word 3 = addr[15:0],
++                                // word 4 = {dir(1=read memory), 3'b0, count[11:0]} -> start
++localparam OP_ROM    = 8'h06;   // words 2.. = boot ROM words from 0
++localparam OP_CFG    = 8'h07;   // word 2 = bit0 enable
++localparam OP_PIO    = 8'h08;   // word 2 = {dir(1 = 68k writes), 3'b0, count[11:0]}:
++                                // the 68k moves count bytes through the WD DATA
++                                // register straight from/into the DMA buffer
++                                // (byte k = buffer word k/2, even byte high);
++                                // ev_pio when the last byte has moved
++
++// control bits (OP_CTRL)
++localparam CTL_CLR_EV_CMD   = 0;
++localparam CTL_CLR_EV_STDMA = 1;
++localparam CTL_CLR_EV_PIO   = 2;
++localparam CTL_CLR_EV_RESET = 3;
++localparam CTL_SET_BUSY     = 4;
++localparam CTL_CLR_BUSY     = 5;
++localparam CTL_SET_DBR      = 6;
++localparam CTL_CLR_DBR      = 7;
++localparam CTL_SET_BSYX     = 8;
++localparam CTL_CLR_BSYX     = 9;
++localparam CTL_WD_RESET     = 10;   // flush status FIFO, clear INT
++localparam CTL_DMA_DONE     = 11;   // dmac_dma <= 0 (amiberry set_dma_done)
++
++// ---------------------------------------------------------------------------
++// bus cycle tracking
++
++wire        acc     = sel & (rd | hwr | lwr);
++reg         acc_d;
++reg  [15:1] acc_addr;
++reg         acc_rd, acc_hwr, acc_lwr;
++reg  [15:0] acc_din;
++
++wire        acc_end = acc_d & ~acc;
++
++always @(posedge clk) begin
++	acc_d <= acc;
++	if (acc) begin
++		if (~acc_d) begin
++			acc_addr <= addr;
++			acc_rd   <= rd;
++			acc_hwr  <= hwr;
++			acc_lwr  <= lwr;
++		end
++		else begin
++			acc_rd   <= acc_rd  | rd;
++			acc_hwr  <= acc_hwr | hwr;
++			acc_lwr  <= acc_lwr | lwr;
++		end
++		if (hwr) acc_din[15:8] <= din[15:8];
++		if (lwr) acc_din[7:0]  <= din[7:0];
++	end
++end
++
++// byte value of a register write, emulating amiberry's word/byte lane rules:
++// the register sees the odd (low) byte; an even-byte-only write lands as 0.
++wire  [7:0] wr_byte = acc_lwr ? acc_din[7:0] : 8'h00;
++wire [15:0] wr_word = {acc_hwr ? acc_din[15:8] : 8'h00, acc_lwr ? acc_din[7:0] : 8'h00};
++
++// register offsets (address bits 7:1 of the 64 KB window)
++wire [15:1] a = acc ? addr : acc_addr;
++wire        in_regs = ~|a[15:8];               // 0x0000-0x00ff
++wire        in_rom  = |a[15:13];               // 0x2000-0xffff
++
++wire r_ac    = in_regs & (a[7:6] == 2'b00);     // 0x00-0x3f autoconfig image
++wire r_istr  = in_regs & (a[7:1] == 7'h20);     // 0x40
++wire r_cntr  = in_regs & (a[7:1] == 7'h21);     // 0x42
++wire r_wtch  = in_regs & (a[7:1] == 7'h40);     // 0x80
++wire r_wtcl  = in_regs & (a[7:1] == 7'h41);     // 0x82
++wire r_acrh  = in_regs & (a[7:1] == 7'h42);     // 0x84
++wire r_acrl  = in_regs & (a[7:1] == 7'h43);     // 0x86
++wire r_sasr  = in_regs & (a[7:1] == 7'h48);     // 0x90/0x91
++wire r_scmd  = in_regs & (a[7:1] == 7'h49);     // 0x92/0x93
++wire r_xt    = in_regs & (a[7:3] == 5'h14);     // 0xa0-0xa7 (A590 XT, absent)
++wire r_dip   = in_regs & (a[7:1] == 7'h60);     // 0xc0
++wire r_ffff  = in_regs & (a[7:3] == 5'h18) & |a[2:1]; // 0xc2-0xc6
++wire r_stdma = in_regs & (a[7:1] == 7'h70);     // 0xe0
++wire r_spdma = in_regs & (a[7:1] == 7'h71);     // 0xe2
++wire r_cint  = in_regs & (a[7:1] == 7'h72);     // 0xe4
++wire r_flush = in_regs & (a[7:1] == 7'h74);     // 0xe8
++
++// ---------------------------------------------------------------------------
++// autoconfig image (same values cpu_wrapper presents at $E80000):
++// er_Type $D1 (Zorro II, DiagArea valid, 64 KB), product 3 (A2091),
++// manufacturer $0202 (Commodore West Chester), DiagArea vector $2000.
++
++function [3:0] ac_nib(input [5:0] idx);
++	case (idx)
++		6'h00: ac_nib = rom_valid ? 4'hD : 4'hC;
++		6'h01: ac_nib = 4'h1;
++		6'h02: ac_nib = 4'hF;   // ~product[7:4]
++		6'h03: ac_nib = 4'hC;   // ~product[3:0]  -> 3
++		6'h08: ac_nib = 4'hF;   // ~$02 hi
++		6'h09: ac_nib = 4'hD;
++		6'h0a: ac_nib = 4'hF;   // ~$02 lo
++		6'h0b: ac_nib = 4'hD;
++		6'h14: ac_nib = 4'hD;   // ~$20  er_InitDiagVec hi
++		6'h15: ac_nib = 4'hF;
++		default: ac_nib = 4'hF;
++	endcase
++endfunction
++
++// ---------------------------------------------------------------------------
++// boot ROM: 8K x 16, big-endian byte pairs, mirrored over 0x2000-0xffff
++
++reg  [15:0] rom [0:8191];
++reg  [15:0] rom_q;
++reg  [12:0] rom_waddr;
++reg  [15:0] rom_wdata;
++reg         rom_we;
++
++always @(posedge clk) begin
++	if (rom_we) rom[rom_waddr] <= rom_wdata;
++	rom_q <= rom[a[13:1]];
++end
++
++// ---------------------------------------------------------------------------
++// DMA buffer: 2K x 16. Port A = HPS (write / read), port B = DMA engine.
++
++reg  [10:0] buf_haddr;
++reg  [15:0] buf_hwdata;
++reg         buf_hwe;
++wire [15:0] buf_hq;
++
++reg  [10:0] buf_daddr;
++reg  [15:0] buf_dwdata;
++reg         buf_dwe;
++wire [15:0] buf_dq;
++
++a2091_tdpram #(.AW(11), .DW(16)) dbuf
++(
++	.clk    (clk),
++	.we_a   (buf_hwe),
++	.addr_a (buf_haddr),
++	.d_a    (buf_hwdata),
++	.q_a    (buf_hq),
++	.we_b   (buf_dwe),
++	.addr_b (buf_daddr),
++	.d_b    (buf_dwdata),
++	.q_b    (buf_dq)
++);
++
++// ---------------------------------------------------------------------------
++// state
++
++reg   [7:0] cntr;
++reg         istr_ints;
++reg         istr_fe;
++reg  [31:0] wtc;
++reg  [23:1] acr;
++reg  [15:0] dawr;
++reg         dmac_dma;
++
++reg   [7:0] wdregs [0:31];
++reg   [4:0] sasr;
++reg         wd_int;
++reg         wd_busy;
++reg         wd_dbr;
++reg         wd_bsyx;
++
++reg         ev_cmd, ev_stdma, ev_pio, ev_reset;
++
++// PIO streaming through the DMA buffer
++reg         pio_on;
++reg         pio_wr;
++reg  [11:0] pio_cnt;
++reg  [11:0] pio_ptr;
++reg   [7:0] pio_hi;
++wire  [7:0] pio_rbyte = pio_ptr[0] ? buf_dq[7:0] : buf_dq[15:8];
++
++// status FIFO
++reg  [15:0] sfifo [0:3];
++reg   [1:0] sf_rd, sf_wr;
++reg   [2:0] sf_cnt;
++reg  [10:0] tick_div;
++reg   [7:0] sf_ticks;
++
++wire        int_pending = istr_ints;
++assign int2 = enabled & configured & cntr[CNTR_INTEN] & int_pending;
++
++wire  [7:0] auxstatus = {wd_int, 1'b0, wd_busy | wd_bsyx, 4'b0000, wd_dbr};
++
++// read value of the register selected by SASR (no side effects)
++wire        wd_invalid = (sasr > WD_QUEUE_TAG && sasr < WD_AUX_STATUS) || (sasr == WD_QUEUE_TAG);
++wire  [7:0] scmd_val = (sasr == WD_AUX_STATUS) ? auxstatus :
++                       wd_invalid              ? 8'hff :
++                       (sasr == WD_DATA && pio_on && ~pio_wr) ? pio_rbyte :
++                       (sasr == WD_DATA && ~wd_dbr) ? 8'h00 :
++                                                 wdregs[sasr];
++
++wire  [7:0] istr_val = {wd_int, istr_ints, 1'b0, cntr[CNTR_INTEN] & istr_ints, 3'b000, istr_fe};
++
++// ---------------------------------------------------------------------------
++// CPU read mux
++
++reg  [15:0] rdata;
++always @(*) begin
++	rdata = 16'h0000;
++	if (in_rom)        rdata = rom_q;
++	else if (r_ac)     rdata = {ac_nib(a[6:1]), (a[6:1] < 6'h02) ? 4'h0 : 4'hF, 8'hFF};
++	else if (r_istr)   rdata = {8'h00, istr_val};
++	else if (r_cntr)   rdata = {8'h00, cntr};
++	else if (r_sasr)   rdata = {8'h00, auxstatus};
++	else if (r_scmd)   rdata = {8'h00, scmd_val};
++	else if (r_xt)     rdata = 16'h00FF;
++	else if (r_dip)    rdata = 16'h00FF;
++	else if (r_ffff)   rdata = 16'hFFFF;
++end
++
++assign dout = (sel & rd & enabled) ? rdata : 16'h0000;
++
++// ---------------------------------------------------------------------------
++// HPS mailbox
++
++reg   [7:0] hp_op;
++reg   [7:0] hp_idx;       // data words seen in this transfer
++reg   [4:0] hp_reg;
++reg  [23:0] hp_dma_addr;
++
++// DMA engine
++reg         dma_busy;
++reg         dma_dir;      // 1 = memory -> buffer
++reg  [11:0] dma_left;
++reg   [2:0] dma_st;
++// DMA targets: chip RAM $000000-$1FFFFF, Zorro II RAM $200000-$9FFFFF,
++// slow RAM $C00000-$D7FFFF. Anything else (ROM, I/O) is never touched.
++wire        dma_addr_ok = (dma_addr[23:21] == 3'b000) ||
++                          (z2ram_ena && (dma_addr[23] ^ |dma_addr[22:21])) ||
++                          (dma_addr[23:19] == 5'b11000) || (dma_addr[23:19] == 5'b11001) ||
++                          (dma_addr[23:19] == 5'b11010);
++localparam DS_IDLE = 3'd0, DS_FETCH = 3'd1, DS_FETCH2 = 3'd2, DS_REQ = 3'd3, DS_NEXT = 3'd4;
++
++assign hp_status = {3'b101, enabled, wd_bsyx, wd_dbr, sf_cnt[1:0] | {2{sf_cnt[2]}},
++                    dmac_dma, wd_busy, wd_int, dma_busy, ev_reset, ev_pio, ev_stdma, ev_cmd};
++
++// read stream ('h70): item index = number of data strobes so far
++reg [7:0] hp_ridx;
++always @(*) begin
++	case (hp_cmd)
++		2'd0: begin
++			if (hp_ridx < 8'd32)       hp_rdata = {8'h00, wdregs[hp_ridx[4:0]]};
++			else case (hp_ridx)
++				8'd32: hp_rdata = {3'b000, sasr, cntr};
++				8'd33: hp_rdata = {8'h00, acr[23:16]};
++				8'd34: hp_rdata = {acr[15:1], 1'b0};
++				8'd35: hp_rdata = wtc[31:16];
++				8'd36: hp_rdata = wtc[15:0];
++				8'd37: hp_rdata = {8'h00, istr_val};
++				8'd38: hp_rdata = {pio_on, 2'd0, pio_ptr, sf_cnt[0]};
++				default: hp_rdata = 16'h0000;
++			endcase
++		end
++		2'd2: hp_rdata = buf_hq;
++		default: hp_rdata = 16'h0000;
++	endcase
++end
++
++// ---------------------------------------------------------------------------
++// main sequential block
++
++integer i;
++
++always @(posedge clk) begin
++	rom_we  <= 1'b0;
++	buf_hwe <= 1'b0;
++	buf_dwe <= 1'b0;
++
++	// --------------------------------------------------------------- HPS
++	if (hp_start) begin
++		hp_idx    <= 8'd0;
++		hp_ridx   <= 8'd0;
++		buf_haddr <= 11'd0;
++	end
++
++	if (hp_strobe) begin
++		if (~&hp_idx)  hp_idx  <= hp_idx + 1'd1;
++		if (~&hp_ridx) hp_ridx <= hp_ridx + 1'd1;
++
++		if (hp_cmd == 2'd2) buf_haddr <= buf_haddr + 1'd1;
++
++		if (hp_cmd == 2'd1) begin
++			if (hp_idx == 8'd0) begin
++				hp_op     <= hp_wdata[15:8];
++				hp_reg    <= hp_wdata[4:0];
++				buf_haddr <= 11'd0;
++				rom_waddr <= 13'h1fff;     // pre-decrement: first word -> 0
++			end
++			else case (hp_op)
++				OP_WDREGS: begin
++					wdregs[hp_reg] <= hp_wdata[7:0];
++					hp_reg <= hp_reg + 1'd1;
++				end
++				OP_CTRL: if (hp_idx == 8'd1) begin
++					if (hp_wdata[CTL_CLR_EV_CMD])   ev_cmd   <= 1'b0;
++					if (hp_wdata[CTL_CLR_EV_STDMA]) ev_stdma <= 1'b0;
++					if (hp_wdata[CTL_CLR_EV_PIO])   ev_pio   <= 1'b0;
++					if (hp_wdata[CTL_CLR_EV_RESET]) ev_reset <= 1'b0;
++					if (hp_wdata[CTL_SET_BUSY])     wd_busy  <= 1'b1;
++					if (hp_wdata[CTL_CLR_BUSY])     wd_busy  <= 1'b0;
++					if (hp_wdata[CTL_SET_DBR])      wd_dbr   <= 1'b1;
++					if (hp_wdata[CTL_CLR_DBR])      wd_dbr   <= 1'b0;
++					if (hp_wdata[CTL_SET_BSYX])     wd_bsyx  <= 1'b1;
++					if (hp_wdata[CTL_CLR_BSYX])     wd_bsyx  <= 1'b0;
++					if (hp_wdata[CTL_CLR_DBR])      pio_on   <= 1'b0;
++					if (hp_wdata[CTL_WD_RESET]) begin
++						sf_rd <= 2'd0; sf_wr <= 2'd0; sf_cnt <= 3'd0;
++						wd_int <= 1'b0;
++					end
++					if (hp_wdata[CTL_DMA_DONE])     dmac_dma <= 1'b0;
++				end
++				OP_STATUS: if (sf_cnt != 3'd4) begin
++					sfifo[sf_wr] <= hp_wdata;
++					sf_wr  <= sf_wr + 1'd1;
++				end
++				OP_ACR: begin
++					if (hp_idx == 8'd1) acr[23:16] <= hp_wdata[7:0];
++					if (hp_idx == 8'd2) acr[15:1]  <= hp_wdata[15:1];
++				end
++				OP_BUFWR: begin
++					buf_hwdata <= hp_wdata;
++					buf_hwe    <= 1'b1;
++				end
++				OP_DMA: begin
++					if (hp_idx == 8'd1) hp_dma_addr[23:16] <= hp_wdata[7:0];
++					if (hp_idx == 8'd2) hp_dma_addr[15:0]  <= hp_wdata;
++				end
++				OP_ROM: begin
++					rom_waddr <= rom_waddr + 1'd1;
++					rom_wdata <= hp_wdata;
++					rom_we    <= 1'b1;
++					rom_valid <= 1'b1;
++				end
++				OP_CFG: if (hp_idx == 8'd1) enabled <= hp_wdata[0];
++				OP_PIO: if (hp_idx == 8'd1 && |hp_wdata[11:0]) begin
++					pio_on    <= 1'b1;
++					pio_wr    <= hp_wdata[15];
++					pio_cnt   <= hp_wdata[11:0];
++					pio_ptr   <= 12'd0;
++					buf_daddr <= 11'd0;
++					wd_dbr    <= 1'b1;
++				end
++				default: ;
++			endcase
++		end
++	end
++
++	// buffer write pointer advances after each written word
++	if (buf_hwe) buf_haddr <= buf_haddr + 1'd1;
++
++	// --------------------------------------------------------------- status FIFO
++	if (OP_STATUS == hp_op && hp_cmd == 2'd1 && hp_strobe && hp_idx != 8'd0 && sf_cnt != 3'd4)
++		sf_cnt <= sf_cnt + 1'd1;
++
++	tick_div <= tick_div + 1'd1;
++	if (wd_int || sf_cnt == 3'd0) sf_ticks <= 8'd0;
++	else if (&tick_div && ~&sf_ticks) sf_ticks <= sf_ticks + 1'd1;
++
++	// deliver the FIFO head when INT is clear, the bus is idle and its
++	// delay (in ~64 us units, amiberry hsync ticks) has elapsed
++	if (~wd_int && sf_cnt != 3'd0 && ~acc && ~acc_d && sf_ticks >= sfifo[sf_rd][15:8] &&
++	    ~(hp_strobe && hp_cmd == 2'd1 && hp_op == OP_CTRL)) begin
++		wdregs[WD_SCSI_STATUS] <= sfifo[sf_rd][7:0];
++		wd_int   <= 1'b1;
++		wd_busy  <= 1'b0;
++		sf_rd    <= sf_rd + 1'd1;
++		sf_cnt   <= sf_cnt - 1'd1 + ((OP_STATUS == hp_op && hp_cmd == 2'd1 && hp_strobe && hp_idx != 8'd0 && sf_cnt != 3'd4) ? 3'd1 : 3'd0);
++		sf_ticks <= 8'd0;
++	end
++
++	// --------------------------------------------------------------- DMAC ISTR
++	if (wd_int) istr_ints <= 1'b1;
++
++	// --------------------------------------------------------------- CPU bus
++	if (acc_end & enabled) begin
++		// strobes: any access, read or write
++		if (r_stdma && ~dmac_dma) begin
++			dmac_dma <= 1'b1;
++			ev_stdma <= 1'b1;
++		end
++		if (r_spdma) dmac_dma <= 1'b0;
++		if (r_cint)  begin istr_ints <= wd_int; istr_fe <= 1'b0; end
++		if (r_flush) istr_fe <= 1'b1;
++
++		if (acc_rd) begin
++			if (r_istr) istr_fe <= 1'b0;
++			if (r_scmd) begin
++				if (sasr == WD_SCSI_STATUS) begin
++					wd_int    <= 1'b0;
++					istr_ints <= 1'b0;
++				end
++				if (sasr == WD_DATA && pio_on && ~pio_wr) begin
++					pio_ptr   <= pio_ptr + 1'd1;
++					buf_daddr <= pio_ptr[11:1] + pio_ptr[0];
++					if (pio_ptr + 1'd1 == pio_cnt) begin
++						pio_on <= 1'b0;
++						wd_dbr <= 1'b0;
++						ev_pio <= 1'b1;
++					end
++				end
++				else if (sasr == WD_DATA && wd_dbr) begin
++					wd_dbr <= 1'b0;
++					ev_pio <= 1'b1;
++				end
++				if (sasr != WD_AUX_STATUS && sasr != WD_DATA && sasr != WD_COMMAND)
++					sasr <= sasr + 1'd1;
++			end
++		end
++
++		if (acc_hwr | acc_lwr) begin
++			if (r_cntr) cntr <= wr_byte;
++			if (r_wtch) wtc[31:16] <= wr_word;
++			if (r_wtcl) wtc[15:0]  <= wr_word;
++			if (r_acrh) acr[23:16] <= wr_byte;
++			if (r_acrl) acr[15:1]  <= {acc_hwr ? acc_din[15:8] : 8'h00, acc_lwr ? acc_din[7:1] : 7'h00};
++			if (in_regs && a[7:1] == 7'h47) dawr <= wr_word;
++			if (r_sasr) sasr <= wr_byte[4:0];
++			if (r_scmd) begin
++				if (sasr != WD_SCSI_STATUS && sasr != WD_AUX_STATUS && ~wd_invalid)
++					wdregs[sasr] <= (sasr == WD_OWN_ID) ? (wr_byte & 8'hdf) : wr_byte;
++				if (sasr == WD_COMMAND) begin
++					wd_busy <= 1'b1;
++					ev_cmd  <= 1'b1;
++				end
++				if (sasr == WD_DATA && pio_on && pio_wr) begin
++					pio_ptr <= pio_ptr + 1'd1;
++					if (~pio_ptr[0]) pio_hi <= wr_byte;
++					if (pio_ptr[0] || pio_ptr + 1'd1 == pio_cnt) begin
++						buf_daddr  <= pio_ptr[11:1];
++						buf_dwdata <= pio_ptr[0] ? {pio_hi, wr_byte} : {wr_byte, 8'h00};
++						buf_dwe    <= 1'b1;
++					end
++					if (pio_ptr + 1'd1 == pio_cnt) begin
++						pio_on <= 1'b0;
++						wd_dbr <= 1'b0;
++						ev_pio <= 1'b1;
++					end
++				end
++				else if (sasr == WD_DATA && wd_dbr) begin
++					wd_dbr <= 1'b0;
++					ev_pio <= 1'b1;
++				end
++				if (sasr != WD_AUX_STATUS && sasr != WD_DATA && sasr != WD_COMMAND && sasr != WD_SCSI_STATUS)
++					sasr <= sasr + 1'd1;
++			end
++		end
++	end
++
++	// --------------------------------------------------------------- DMA engine
++	case (dma_st)
++		DS_IDLE: if (hp_strobe && hp_cmd == 2'd1 && hp_op == OP_DMA && hp_idx == 8'd3) begin
++			dma_addr  <= hp_dma_addr[23:1];
++			dma_dir   <= hp_wdata[15];
++			dma_left  <= hp_wdata[11:0];
++			buf_daddr <= 11'd0;
++			dma_busy  <= |hp_wdata[11:0];
++			dma_st    <= |hp_wdata[11:0] ? DS_FETCH : DS_IDLE;
++		end
++		DS_FETCH:  dma_st <= DS_FETCH2;           // buffer read latency
++		DS_FETCH2: begin
++			dma_wdata <= buf_dq;
++			dma_we    <= ~dma_dir;
++			if (dma_addr_ok) begin
++				dma_req <= 1'b1;
++				dma_st  <= DS_REQ;
++			end
++			else begin
++				// not RAM the DMAC could reach: drop writes, reads float high
++				if (dma_dir) begin
++					buf_dwdata <= 16'hFFFF;
++					buf_dwe    <= 1'b1;
++				end
++				dma_st <= DS_NEXT;
++			end
++		end
++		DS_REQ: if (dma_ack) begin
++			dma_req <= 1'b0;
++			if (dma_dir) begin
++				buf_dwdata <= dma_rdata;
++				buf_dwe    <= 1'b1;
++			end
++			dma_st <= DS_NEXT;
++		end
++		DS_NEXT: begin
++			dma_addr  <= dma_addr + 1'd1;
++			buf_daddr <= buf_daddr + 1'd1;
++			dma_left  <= dma_left - 1'd1;
++			if (dma_left == 12'd1) begin
++				dma_busy <= 1'b0;
++				dma_st   <= DS_IDLE;
++			end
++			else dma_st <= DS_FETCH;
++		end
++		default: dma_st <= DS_IDLE;
++	endcase
++
++	// --------------------------------------------------------------- resets
++	if (reset | (acc_end & (acc_hwr | acc_lwr) & r_cntr & wr_byte[CNTR_PREST])) begin
++		// DMAC reset (bus reset or CNTR.PREST)
++		cntr      <= 8'h00;
++		istr_ints <= 1'b0;
++		istr_fe   <= 1'b0;
++		dmac_dma  <= 1'b0;
++	end
++
++	if (reset) begin
++		// WD33C93 hardware reset (amiberry wd_cmd_reset without IRQ)
++		for (i = 1; i <= 8'h16; i = i + 1) wdregs[i] <= 8'h00;
++		wdregs[WD_COMMAND] <= 8'h00;
++		sasr     <= 5'd0;
++		wd_int   <= 1'b0;
++		wd_busy  <= 1'b0;
++		wd_dbr   <= 1'b0;
++		wd_bsyx  <= 1'b0;
++		sf_rd    <= 2'd0;
++		sf_wr    <= 2'd0;
++		sf_cnt   <= 3'd0;
++		ev_cmd   <= 1'b0;
++		ev_stdma <= 1'b0;
++		ev_pio   <= 1'b0;
++		ev_reset <= 1'b1;
++		pio_on   <= 1'b0;
++		acr      <= 23'd0;
++		wtc      <= 32'd0;
++	end
++end
++
++initial begin
++	enabled   = 1'b1;
++	rom_valid = 1'b0;
++	dma_st    = DS_IDLE;
++	dma_req   = 1'b0;
++	dma_we    = 1'b0;
++	dma_busy  = 1'b0;
++	hp_op     = 8'hff;
++	hp_idx    = 8'd0;
++	hp_ridx   = 8'd0;
++	sf_rd     = 2'd0;
++	sf_wr     = 2'd0;
++	sf_cnt    = 3'd0;
++	sf_ticks  = 8'd0;
++	tick_div  = 11'd0;
++	wd_int    = 1'b0;
++	wd_busy   = 1'b0;
++	wd_dbr    = 1'b0;
++	wd_bsyx   = 1'b0;
++	ev_cmd    = 1'b0;
++	ev_stdma  = 1'b0;
++	ev_pio    = 1'b0;
++	ev_reset  = 1'b0;
++	pio_on    = 1'b0;
++	pio_wr    = 1'b0;
++	pio_cnt   = 12'd0;
++	pio_ptr   = 12'd0;
++	cntr      = 8'h00;
++	istr_ints = 1'b0;
++	istr_fe   = 1'b0;
++	dmac_dma  = 1'b0;
++	acr       = 23'd0;
++	wtc       = 32'd0;
++	sasr      = 5'd0;
++	acc_d     = 1'b0;
++end
++
++endmodule
++
++
++// True dual-port RAM in the Quartus inference template (one clock).
++module a2091_tdpram #(parameter AW = 11, parameter DW = 16)
++(
++	input               clk,
++	input               we_a,
++	input      [AW-1:0] addr_a,
++	input      [DW-1:0] d_a,
++	output reg [DW-1:0] q_a,
++	input               we_b,
++	input      [AW-1:0] addr_b,
++	input      [DW-1:0] d_b,
++	output reg [DW-1:0] q_b
++);
++
++reg [DW-1:0] ram [0:(1<<AW)-1];
++
++always @(posedge clk) begin
++	if (we_a) begin
++		ram[addr_a] <= d_a;
++		q_a <= d_a;
++	end
++	else q_a <= ram[addr_a];
++end
++
++always @(posedge clk) begin
++	if (we_b) begin
++		ram[addr_b] <= d_b;
++		q_b <= d_b;
++	end
++	else q_b <= ram[addr_b];
++end
++
++endmodule
+diff --git a/rtl/chipdma_arb.v b/rtl/chipdma_arb.v
+index a03c93a..07d0851 100644
+--- a/rtl/chipdma_arb.v
++++ b/rtl/chipdma_arb.v
+@@ -28,6 +28,14 @@ module chipdma_arb
+ 	output      [7:0] cdtv_dma_rbyte,
+ 	output            cdtv_dma_ack,
+ 
++	// A2091 DMAC: word transfers, 24-bit address
++	input             a2091_dma_req,
++	input             a2091_dma_we,
++	input      [23:1] a2091_dma_addr,
++	input      [15:0] a2091_dma_wdata,
++	output     [15:0] a2091_dma_rdata,
++	output            a2091_dma_ack,
++
+ 	output     [24:1] chip_out_addr,
+ 	output            chip_out_l,
+ 	output            chip_out_u,
+@@ -58,13 +66,17 @@ wire c_7m_rise = c_7m & ~c_7m_d;
+ 
+ reg akiko_dma_req_q;
+ reg cdtv_dma_req_q;
++reg a2091_ack_r;
++reg a2091_dma_req_q;
+ always @(posedge clk) begin
+ 	if (reset) begin
+ 		akiko_dma_req_q <= 1'b0;
+ 		cdtv_dma_req_q  <= 1'b0;
++		a2091_dma_req_q <= 1'b0;
+ 	end else begin
+ 		akiko_dma_req_q <= akiko_dma_req;
+ 		cdtv_dma_req_q  <= cdtv_dma_req;
++		a2091_dma_req_q <= a2091_dma_req & ~a2091_ack_r;
+ 	end
+ end
+ 
+@@ -111,33 +123,44 @@ reg [1:0] state;
+ reg [7:0] ak_rbyte_r;
+ reg       ak_ack_r;
+ reg       cdtv_ack_r;
++reg [15:0] a2091_rdata_r;
+ 
+ reg active_is_cdtv;
++reg active_is_a2091;
+ 
+ assign akiko_dma_rbyte = ak_rbyte_r;
+ assign akiko_dma_ack   = ak_ack_r;
+ assign cdtv_dma_rbyte  = 8'h00;
+ assign cdtv_dma_ack    = cdtv_ack_r;
++assign a2091_dma_rdata = a2091_rdata_r;
++assign a2091_dma_ack   = a2091_ack_r;
+ 
+ wire minimig_idle = chip_in_dma & chip_in_rw;
+ 
+-wire any_req       = akiko_dma_req_q | cdtv_dma_req_q;
+-wire arming_is_cdtv = ~akiko_dma_req_q & cdtv_dma_req_q;
++wire any_req        = akiko_dma_req_q | cdtv_dma_req_q | a2091_dma_req_q;
++wire arming_is_cdtv  = ~akiko_dma_req_q & cdtv_dma_req_q;
++wire arming_is_a2091 = ~akiko_dma_req_q & ~cdtv_dma_req_q & a2091_dma_req_q;
+ 
+-wire        live_we     = arming_is_cdtv ? cdtv_dma_we    : akiko_dma_we;
+-wire [31:0] live_baddr  = arming_is_cdtv ? cdtv_dma_baddr : {8'h00, akiko_dma_baddr};
++wire        live_we     = arming_is_a2091 ? a2091_dma_we : arming_is_cdtv ? cdtv_dma_we    : akiko_dma_we;
++wire [31:0] live_baddr  = arming_is_a2091 ? {8'h00, a2091_dma_addr, 1'b0} :
++                          arming_is_cdtv  ? cdtv_dma_baddr : {8'h00, akiko_dma_baddr};
+ wire  [7:0] live_wbyte  = arming_is_cdtv ? cdtv_dma_wbyte : akiko_dma_wbyte;
++wire [15:0] live_wword  = arming_is_a2091 ? a2091_dma_wdata : {live_wbyte, live_wbyte};
+ 
+ wire start_candidate = (state == S_IDLE) & c_7m_rise & any_req;
+ wire arm_now = start_candidate & minimig_idle;
+ 
+-assign akiko_arm = arm_now & ~arming_is_cdtv;
++assign akiko_arm = arm_now & ~arming_is_cdtv & ~arming_is_a2091;
+ 
+-wire [24:1] ak_addr_w    = start_candidate ? {1'b0, live_baddr[23:1]} : ak_addr;
+-wire        ak_l_w       = start_candidate ? ~live_baddr[0]           : ak_l;
+-wire        ak_u_w       = start_candidate ?  live_baddr[0]           : ak_u;
+-wire        ak_rw_w      = start_candidate ? ~live_we                 : ak_rw;
+-wire [15:0] ak_wr_data_w = start_candidate ? {live_wbyte, live_wbyte} : ak_wr_data;
++// A2091: $C00000-$D7FFFF slow RAM lives at SDRAM $400000 (minimig_sram_bridge
++// drops address bit 23 for the slow banks); chip RAM maps 1:1.
++wire        a2091_slow   = arming_is_a2091 & (live_baddr[23:22] == 2'b11);
++wire [24:1] live_caddr   = {1'b0, live_baddr[23] & ~a2091_slow, live_baddr[22:1]};
++wire [24:1] ak_addr_w    = start_candidate ? live_caddr : ak_addr;
++wire        ak_l_w       = start_candidate ? ~live_baddr[0] & ~arming_is_a2091 : ak_l;
++wire        ak_u_w       = start_candidate ?  live_baddr[0]                    : ak_u;
++wire        ak_rw_w      = start_candidate ? ~live_we                          : ak_rw;
++wire [15:0] ak_wr_data_w = start_candidate ? live_wword                        : ak_wr_data;
+ 
+ wire [28:1] router_ramaddr;
+ wire        router_zram_sel = |router_ramaddr[28:26];
+@@ -184,24 +207,29 @@ always @(posedge clk) begin
+ 		slot_cnt       <= 3'd0;
+ 		ak_ack_r       <= 1'b0;
+ 		cdtv_ack_r     <= 1'b0;
++		a2091_ack_r    <= 1'b0;
++		a2091_rdata_r  <= 16'h0000;
+ 		ak_rbyte_r     <= 8'h00;
+ 		active_is_cdtv <= 1'b0;
++		active_is_a2091 <= 1'b0;
+ 		ak_is_ddr      <= 1'b0;
+ 		ak_unmapped    <= 1'b0;
+ 		dma_ddr_cs_r   <= 1'b0;
+ 		dma_ddr_we_r   <= 1'b1;
+ 	end else begin
+-		ak_ack_r   <= 1'b0;
+-		cdtv_ack_r <= 1'b0;
++		ak_ack_r    <= 1'b0;
++		cdtv_ack_r  <= 1'b0;
++		a2091_ack_r <= 1'b0;
+ 
+ 		case (state)
+ 		S_IDLE: begin
+ 			if (arm_now) begin
+-				ak_addr        <= {1'b0, live_baddr[23:1]};
++				ak_addr        <= live_caddr;
+ 				ak_u           <= live_baddr[0];
+-				ak_l           <= ~live_baddr[0];
++				ak_l           <= ~live_baddr[0] & ~arming_is_a2091;
+ 				ak_rw          <= ~live_we;
+-				ak_wr_data     <= {live_wbyte, live_wbyte};
++				ak_wr_data     <= live_wword;
++				active_is_a2091 <= arming_is_a2091;
+ 				ak_we          <= live_we;
+ 				ak_baddr0      <= live_baddr[0];
+ 				ak_is_ddr      <= router_zram_sel;
+@@ -211,9 +239,9 @@ always @(posedge clk) begin
+ 				if (router_zram_sel) begin
+ 					dma_ddr_cs_r   <= 1'b1;
+ 					dma_ddr_addr_r <= router_ramaddr;
+-					dma_ddr_l_r    <= ~live_baddr[0];
++					dma_ddr_l_r    <= ~live_baddr[0] & ~arming_is_a2091;
+ 					dma_ddr_u_r    <=  live_baddr[0];
+-					dma_ddr_wr_r   <= {live_wbyte, live_wbyte};
++					dma_ddr_wr_r   <= live_wword;
+ 					dma_ddr_we_r   <= live_we;
+ 				end
+ 				state          <= S_DRIVE;
+@@ -226,6 +254,7 @@ always @(posedge clk) begin
+ 					if (!ak_we) begin
+ 						ak_rbyte_r <= ak_baddr0 ? ddr_in_rd[7:0]
+ 						                        : ddr_in_rd[15:8];
++						a2091_rdata_r <= ddr_in_rd;
+ 					end
+ 					state <= S_ACK;
+ 				end
+@@ -235,6 +264,7 @@ always @(posedge clk) begin
+ 					if (!ak_we) begin
+ 						ak_rbyte_r <= ak_baddr0 ? chip_in_rd[7:0]
+ 						                        : chip_in_rd[15:8];
++						a2091_rdata_r <= chip_in_rd;
+ 					end
+ 					state <= S_ACK;
+ 				end
+@@ -242,8 +272,9 @@ always @(posedge clk) begin
+ 		end
+ 
+ 		S_ACK: begin
+-			if (active_is_cdtv) cdtv_ack_r <= 1'b1;
+-			else                ak_ack_r   <= 1'b1;
++			if (active_is_a2091)     a2091_ack_r <= 1'b1;
++			else if (active_is_cdtv) cdtv_ack_r  <= 1'b1;
++			else                     ak_ack_r    <= 1'b1;
+ 			dma_ddr_cs_r <= 1'b0;
+ 			state <= S_COOLDOWN;
+ 		end
+diff --git a/rtl/cpu_wrapper.v b/rtl/cpu_wrapper.v
+index 491c488..e704348 100644
+--- a/rtl/cpu_wrapper.v
++++ b/rtl/cpu_wrapper.v
+@@ -72,6 +72,11 @@ module cpu_wrapper
+ 	output            a2065_ena,
+ 	output reg  [7:0] a2065_base,
+ 
++	input             a2091_present,   // A2091 SCSI board enabled
++	input             a2091_rom,       // boot ROM loaded -> DiagArea valid
++	output            a2091_ena,
++	output reg  [7:0] a2091_base,
++
+ 	input             cdtv_mode,
+ 	output reg  [7:0] cdtv_base,
+ 
+@@ -386,9 +391,11 @@ end
+ 
+ reg       ac_toccata;
+ reg       ac_a2065;
++reg       ac_a2091;
+ reg       ac_cdtv;
+ reg [2:0] ac_memcard;
+ reg [3:0] autocfg_data;
++reg       a2091_cfgd;
+ 
+ 
+ always @(*) begin
+@@ -473,6 +480,25 @@ always @(*) begin
+ 			default: ;
+ 		endcase
+ 	end
++	// A2091 SCSI (Commodore, mfr=0x0202, product=3), 64KB, DiagArea at $2000
++	else if(ac_a2091) begin
++		case (chip_addr[6:1])
++			6'h0: autocfg_data = {3'b110, a2091_rom}; // Zorro-II card, no link, ROM vector valid if loaded
++			6'h1: autocfg_data = 4'b0001; // size 64KB
++			// Inverted from here on
++			6'h2: autocfg_data = 4'b1111; // er_Product high nibble
++			6'h3: autocfg_data = 4'b1100; // er_Product low nibble -> 0x03
++			6'h8: autocfg_data = 4'b1111; // er_Manufacturer -> 0x0202
++			6'h9: autocfg_data = 4'b1101;
++			6'ha: autocfg_data = 4'b1111;
++			6'hb: autocfg_data = 4'b1101;
++			6'h14: autocfg_data = 4'b1101; // er_InitDiagVec = 0x2000
++			6'h15: autocfg_data = 4'b1111;
++			6'h16: autocfg_data = 4'b1111;
++			6'h17: autocfg_data = 4'b1111;
++			default: ;
++		endcase
++	end
+ 	// Zorro III RAM 128MB/256MB/384MB
+ 	else if(ac_memcard[2]) begin
+ 		case (chip_addr[6:1])
+@@ -491,7 +517,7 @@ always @(*) begin
+ 	end
+ end
+ 
+-wire sel_autoconfig = (chip_addr[23:16] == 8'b11101000) && (ac_memcard || ac_toccata || ac_a2065 || ac_cdtv); //$E80000 - $E8FFFF
++wire sel_autoconfig = (chip_addr[23:16] == 8'b11101000) && (ac_memcard || ac_toccata || ac_a2065 || ac_a2091 || ac_cdtv); //$E80000 - $E8FFFF
+ 
+ always @(posedge clk) begin
+ 	reg old_uds;
+@@ -501,8 +527,10 @@ always @(posedge clk) begin
+ 		ac_memcard  <= cpucfg[1] ? fastramcfg : fastramcfg[2] ? 3'd3 : {1'b0, fastramcfg[1:0]};
+ 		ac_toccata  <= cdtv_mode ? 1'b0 : 1'b1;
+ 		ac_a2065    <= 1;
++		ac_a2091    <= a2091_present & ~cdtv_mode;
+ 		ac_cdtv     <= cdtv_mode;
+ 		cdtv_base   <= 8'hE9;
++		a2091_cfgd  <= 0;
+ 		z2ram_ena   <= 0;
+ 		z3ram_ena0  <= 0;
+ 		z3ram_ena1  <= 0;
+@@ -537,6 +565,16 @@ always @(posedge clk) begin
+ 				ac_a2065<=0;
+ 			end
+ 		end
++		else if(ac_a2091) begin
++			if (chip_addr[6:1] == 6'b100100) begin // Register 0x48 - config, A2091 SCSI
++				a2091_base <= cpu_dout[7:0];
++				ac_a2091 <= 0;
++				a2091_cfgd <= 1;
++			end
++			else if (chip_addr[6:1] == 6'b100110) begin // Register 0x4c - shut up
++				ac_a2091 <= 0;
++			end
++		end
+ 		else if(ac_memcard[2]) begin
+ 			if(chip_addr[6:1] == 6'b100010) begin // Register 0x44, assign base address to ZIII RAM.
+ 				if(~ac_memcard[1]) begin
+@@ -556,5 +594,6 @@ end
+ 
+ assign toccata_ena = ~ac_toccata & ~cdtv_mode;
+ assign a2065_ena   = ~ac_a2065;
++assign a2091_ena   = a2091_cfgd;
+ 
+ endmodule
+diff --git a/rtl/gary.v b/rtl/gary.v
+index 4a5147e..9d6025d 100644
+--- a/rtl/gary.v
++++ b/rtl/gary.v
+@@ -78,6 +78,8 @@ module gary
+ 
+ 	input         a2065_ena,
+ 	input   [7:0] a2065_base,
++	input         a2091_ena,
++	input   [7:0] a2091_base,
+ 	input         toccata_ena,
+ 	input   [7:0] toccata_base,
+ 	input   [7:0] cdtv_base,
+@@ -103,6 +105,7 @@ module gary
+ 	output       sel_gayle, //select $DExxxx
+ 	output       sel_toccata,
+ 	output       sel_a2065,
++	output       sel_a2091,
+ 
+ 	output       sel_cdtv,
+ 	output       sel_cdtv_nvram,
+@@ -198,6 +201,7 @@ assign sel_bank_1 = cpu_address_in[23:21]==3'b001;
+ 
+ assign sel_toccata = toccata_ena && cpu_address_in[23:16]==toccata_base; // Nominally $e9xxxx
+ assign sel_a2065   = a2065_ena && cpu_address_in[23:16]==a2065_base;
++assign sel_a2091   = a2091_ena && cpu_address_in[23:16]==a2091_base;
+ 
+ assign sel_cdtv       = cdtv_mode && cpu_address_in[23:16]==cdtv_base;
+ assign sel_cdtv_nvram = cdtv_mode && cpu_address_in[23:15]==9'b1101_1100_1;
+diff --git a/rtl/minimig.v b/rtl/minimig.v
+index 1c37a24..09dea7e 100644
+--- a/rtl/minimig.v
++++ b/rtl/minimig.v
+@@ -253,6 +253,25 @@ module minimig
+ 	input         a2065_ena,
+ 	input   [7:0] a2065_base,
+ 
++	// A2091 SCSI
++	input         a2091_ena,       // autoconfigured (cpu_wrapper)
++	input   [7:0] a2091_base,
++	output        a2091_present,   // board enabled (default on)
++	output        a2091_rom,       // boot ROM loaded
++	input         z2ram_ena,
++	input   [1:0] a2091_hp_cmd,
++	input         a2091_hp_start,
++	input         a2091_hp_strobe,
++	input  [15:0] a2091_hp_wdata,
++	output [15:0] a2091_hp_rdata,
++	output [15:0] a2091_hp_status,
++	output        a2091_dma_req,
++	output        a2091_dma_we,
++	output [23:1] a2091_dma_addr,
++	output [15:0] a2091_dma_wdata,
++	input  [15:0] a2091_dma_rdata,
++	input         a2091_dma_ack,
++
+ 	output        cdtv_mode,
+ 
+ 	output [15:0] cdtv_din,
+@@ -375,6 +394,9 @@ wire        sel_cia_a;			//cia A select
+ wire        sel_cia_b;			//cia B select
+ 	wire        sel_toccata;
+ 	wire        sel_a2065;
++	wire        sel_a2091;
++	wire [15:0] a2091_dout;
++	wire        a2091_int2;
+ wire        sel_cdtv;
+ wire        sel_cdtv_nvram;
+ wire        sel_cdtv_card;
+@@ -576,7 +598,7 @@ paula PAULA1
+ 	.sof(sof),
+ 	.strhor(strhor_paula),
+ 	.vblint(vbl_int),
+-	.int2(int2|(ide_fast ? ide_ext_irq : gayle_irq)|a2065_int2_sync|akiko_irq|cdtv_irq_w),
++	.int2(int2|(ide_fast ? ide_ext_irq : gayle_irq)|a2065_int2_sync|akiko_irq|cdtv_irq_w|a2091_int2),
+ 	.int3(int3),
+ 	.int6(int6 | int6_toccata),
+ 	._ipl(_iplx),
+@@ -889,6 +911,8 @@ gary GARY1
+ 	.cdtv_base(cdtv_base),
+ 	.a2065_ena(a2065_ena),
+ 	.a2065_base(a2065_base),
++	.a2091_ena(a2091_ena & a2091_present),
++	.a2091_base(a2091_base),
+ 	.cdtv_mode(chipset_config[5]),
+ 	.ram_rd(ram_rd),
+ 	.ram_hwr(ram_hwr),
+@@ -909,6 +933,7 @@ gary GARY1
+ 	.sel_rtc(sel_rtc),
+ 	.sel_toccata(sel_toccata),
+ 	.sel_a2065(sel_a2065),
++	.sel_a2091(sel_a2091),
+ 	.sel_cdtv(sel_cdtv),
+ 	.sel_cdtv_nvram(sel_cdtv_nvram),
+ 	.sel_cdtv_card(sel_cdtv_card),
+@@ -1039,6 +1064,44 @@ a2065 a2065_inst (
+ );
+ 
+ //
++//-------------------------------------------------------------------------------------
++// A2091 SCSI host adapter (DMAC + WD33C93A). The WD33C93 command engine and
++// the SCSI targets run on the HPS; see rtl/a2091.v.
++
++a2091 a2091_inst
++(
++	.clk        (clk),
++	.reset      (reset),
++	.configured (a2091_ena),
++	.z2ram_ena  (z2ram_ena),
++
++	.sel        (sel_a2091),
++	.addr       (cpu_address_out[15:1]),
++	.din        (cpu_data_out),
++	.dout       (a2091_dout),
++	.rd         (cpu_rd),
++	.hwr        (cpu_hwr),
++	.lwr        (cpu_lwr),
++
++	.int2       (a2091_int2),
++	.enabled    (a2091_present),
++	.rom_valid  (a2091_rom),
++
++	.hp_cmd     (a2091_hp_cmd),
++	.hp_start   (a2091_hp_start),
++	.hp_strobe  (a2091_hp_strobe),
++	.hp_wdata   (a2091_hp_wdata),
++	.hp_rdata   (a2091_hp_rdata),
++	.hp_status  (a2091_hp_status),
++
++	.dma_req    (a2091_dma_req),
++	.dma_we     (a2091_dma_we),
++	.dma_addr   (a2091_dma_addr),
++	.dma_wdata  (a2091_dma_wdata),
++	.dma_rdata  (a2091_dma_rdata),
++	.dma_ack    (a2091_dma_ack)
++);
++
+ //-------------------------------------------------------------------------------------
+ 
+ cdtv_bridge cdtv_bridge_inst
+@@ -1156,7 +1219,8 @@ assign cpu_data_in[15:0]= gary_data_out[15:0]
+ 							 | cart_data_out[15:0]
+ 							 | rtc_out
+ 							 | toccata_out
+-							 | a2065_dout;
++							 | a2065_dout
++							 | a2091_dout;
+ 
+ assign custom_data_out[15:0] = agnus_data_out[15:0]
+ 							 | paula_data_out[15:0]
